@@ -538,6 +538,11 @@ void test_string_ko(void)
     check_string_ko("\"\\\\abc", YY_ERROR_INVALID_STRING);
 
     check_string_ko("\"abc\\xdef\"", YY_ERROR_INVALID_STRING);  // unrecognized escaped char (\x)
+
+    // 0 in-the-middle
+    yy_symbol_t symbol = {0};
+    char str[] = { '"', 'a', 'b', 'c', 0, 'd', 'e', 'f', '"', 0};
+    TEST_CHECK(parse_quoted_string(str, str + sizeof(str) - 1, &symbol) == YY_ERROR_INVALID_STRING);
 }
 
 void test_boolean_ok(void)
@@ -728,6 +733,7 @@ void test_grammar_number(void)
     check_grammar_number_ok("${a} + 1");
     check_grammar_number_ok("((((-1))))");
     check_grammar_number_ok("abs(-PI)");
+    check_grammar_number_ok("2 * (-1)");
 
     check_grammar_number_ko(" ");
     check_grammar_number_ko("not_a_var");
@@ -744,6 +750,10 @@ void test_grammar_number(void)
     check_grammar_number_ko("min(1,");
     check_grammar_number_ko("min(1,)");
     check_grammar_number_ko("min(1,2");
+    check_grammar_number_ko("+-1"); // two consecutive operators
+    check_grammar_number_ko("++1"); // two consecutive operators
+    check_grammar_number_ko("1++1"); // two consecutive operators
+    check_grammar_number_ko("2 * -1"); // two consecutive operators
 }
 
 TEST_LIST = {

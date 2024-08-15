@@ -1,0 +1,33 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}"
+            ],
+            "compilerPath": "/usr/lib64/ccache/gcc",
+            "cStandard": "gnu11",
+            "intelliSenseMode": "linux-gcc-x64",
+            "compilerArgs": [
+                "-Wall",
+                "-Wextra",
+                "-Wshadow",
+                "-Wpedantic",
+                "-Wconversion",
+                "-Wsign-conversion",
+                "-Wnull-dereference",
+                "-Wduplicated-branches",
+                "-Wduplicated-cond",
+                "-Wlogical-op",
+                "-Wuseless-cast"
+            ],
+            "browse": {
+                "path": [
+                    "${workspaceFolder}"
+                ],
+                "limitSymbolsToIncludedHeaders": true
+            }
+        }
+    ],
+    "version": 4
+}

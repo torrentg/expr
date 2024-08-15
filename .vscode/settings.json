@@ -1,0 +1,8 @@
+{
+  "files.associations": {
+    "stdbool.h": "c",
+    "chrono": "c",
+    "stdio.h": "c",
+    "charconv": "c"
+  }
+}

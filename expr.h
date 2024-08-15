@@ -61,7 +61,7 @@ typedef struct yy_func_t {
 } yy_func_t;
 
 typedef enum yy_type_e {
-    YY_TYPE_BOOl,                   //!< Boolean type.
+    YY_TYPE_BOOL,                   //!< Boolean type.
     YY_TYPE_NUMBER,                 //!< Number type.
     YY_TYPE_DATETIME,               //!< Timestamp type.
     YY_TYPE_STRING                  //!< String type.

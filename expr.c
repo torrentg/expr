@@ -111,14 +111,13 @@ typedef struct yy_symbol_t
 
 typedef struct yy_parser_t
 {
-    const char *curr;
-    const char *begin;
-    const char *end;
-    yy_stack_t *stack;
-    yy_symbol_t curr_symbol;
-    yy_symbol_t prev_symbol;
-    const char *error_location;
-    yy_retcode_e error;
+    const char *begin;              //!< Expression to parse.
+    const char *end;                //!< One char after the end of the expression to parse.
+    const char *curr;               //!< Current position being parsed.
+    yy_stack_t *stack;              //!< Resulting RPN stack.
+    yy_symbol_t curr_symbol;        //!< Current symbol.
+    yy_symbol_t prev_symbol;        //!< Previous symbol.
+    yy_retcode_e error;             //!< Error code (YY_OK means no error), curr points to error location.
 } yy_parser_t;
 
 typedef struct yy_identifier_t
@@ -310,6 +309,12 @@ static bool is_leap_year(int year) {
  * YY_SYMBOL_NUMBER_VAL
  *    - regex := (0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?(0|[1-9][0-9]*))?
  *    - range := @see https://en.wikipedia.org/wiki/Double-precision_floating-point_format
+ * 
+ * Unsupported strtod() valid cases:
+ *    - Non-zero number starting with zero: 00, 03, 003.14
+ *    - Number starting with dot: .5, .314e1
+ *    - Number ending with dot: 1., 42.
+ *    - Non-zero exponent starting with zero: 1e04
  * 
  * This function was inspired by re2c generated code:
  * 
@@ -519,7 +524,7 @@ NUMBER_READ_FLOAT:
  *        minute = [0-5][0-9];
  *        second = [0-5][0-9];
  *        millis = [0-9]{1,3};
- *        datetime = year '-' month '-' day ('T' hour ':' minute ':' second ('.' millis )? 'Z' ?)?;
+ *        datetime = year '-' month '-' day ( 'T' hour ':' minute ':' second ( '.' millis )? 'Z'? )?;
  *        datetime { return true; }
  *        *        { return false; }
  *     *\/
@@ -861,6 +866,7 @@ STRING_NEXT_CHAR:
         return YY_ERROR_INVALID_STRING;
 
     switch (*ptr) {
+        case 0: return YY_ERROR_INVALID_STRING;
         case '\\': goto STRING_ESCAPED_CHAR;
         case '"': goto STRING_END;
         default: goto STRING_NEXT_CHAR;
@@ -1073,6 +1079,8 @@ VARIABLE_END:
  * Parse until an unrecognized char is found.
  * Input string range can be greater than parsed string.
  * 
+ * This function is equivalent to function next() in Theodore Norvell doc.
+ * 
  * Ambiguous symbols:
  *    '+' : returned as YY_SYMBOL_ADDITION_OP
  *    '-' : returned as YY_SYMBOL_SUBTRACTION_OP
@@ -1270,69 +1278,90 @@ SKIP_SPACES_START:
     return begin;
 }
 
-static bool yy_next(yy_parser_t *parser)
+/**
+ * Read next symbol and updates parser data accordingly.
+ * 
+ * @param[in] parser Parser to update.
+ * 
+ * @return true = success, false = error.
+ */
+static bool consume(yy_parser_t *parser)
 {
     assert(parser);
 
     if (parser->error != YY_OK)
         return false;
 
-    if (parser->curr_symbol.type == YY_SYMBOL_END)
-        return true;
+    switch (parser->curr_symbol.type)
+    {
+        case YY_SYMBOL_END:
+            return true;
+        case YY_SYMBOL_NONE:
+            break;
+        default: 
+            parser->curr += parser->curr_symbol.lexeme.len;
+    }
 
+    assert(parser->begin <= parser->curr);
+    assert(parser->curr <= parser->end);
+
+    parser->prev_symbol = parser->curr_symbol;
     parser->curr = skip_spaces(parser->curr, parser->end);
     parser->error = parse_symbol(parser->curr, parser->end, &parser->curr_symbol);
 
-    if (parser->error != YY_OK) {
-        parser->error_location = parser->curr;
-        return false;
-    }
-
-    parser->curr += parser->curr_symbol.lexeme.len;
-    assert(parser->begin <= parser->end);
-
-    return true;
+    return (parser->error == YY_OK);
 }
 
-static bool yy_consume(yy_parser_t *parser)
+/**
+ * Checks that current symbol is the expected one and moves to next symbol.
+ * 
+ * @param[in] parser Parser to update.
+ * @param[in] type Expected symbol.
+ * 
+ * @return true = success, false = unexpected symbol or error reading next symbol.
+ */
+static bool expect(yy_parser_t *parser, yy_symbol_e type)
 {
     assert(parser);
 
     if (parser->error != YY_OK)
         return false;
 
-    if (parser->curr_symbol.type == YY_SYMBOL_END)
-        return true;
-
-    parser->prev_symbol = parser->curr_symbol;
-
-    return yy_next(parser);
-}
-
-static void yy_error(yy_parser_t *parser, yy_retcode_e err)
-{
-    assert(parser);
-
-    parser->error = err;
-    parser->error_location = parser->curr;
-}
-
-static bool yy_expect(yy_parser_t *parser, yy_symbol_e type)
-{
-    assert(parser);
-
-    if (parser->error != YY_OK)
+    if (parser->curr_symbol.type != type) {
+        parser->error = YY_ERROR_SYNTAX;
         return false;
-
-    if (parser->curr_symbol.type == type) {
-        yy_consume(parser);
-        return true;
     }
 
-    yy_error(parser, YY_ERROR_SYNTAX);
-    return false;
+    return consume(parser);
 }
 
+static bool is_numeric_operator(yy_symbol_e type)
+{
+    switch (type)
+    {
+        case YY_SYMBOL_PLUS_OP:
+        case YY_SYMBOL_MINUS_OP:
+        case YY_SYMBOL_ADDITION_OP:
+        case YY_SYMBOL_SUBTRACTION_OP:
+        case YY_SYMBOL_PRODUCT_OP:
+        case YY_SYMBOL_DIVIDE_OP:
+        case YY_SYMBOL_MODULO_OP:
+        case YY_SYMBOL_POWER_OP:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/**
+ * Parse a numeric term.
+ * 
+ * @see Numeric expression grammar (in comments).
+ * 
+ * @param[in] parser Parser to update.
+ * 
+ * @return true = success, false = error.
+ */
 static bool parse_term_number(yy_parser_t *parser)
 {
     assert(parser);
@@ -1340,13 +1369,13 @@ static bool parse_term_number(yy_parser_t *parser)
     if (parser->error != YY_OK)
         return false;
 
-    switch(parser->curr_symbol.type)
+    switch (parser->curr_symbol.type)
     {
         case YY_SYMBOL_CONST_E:
         case YY_SYMBOL_CONST_PI:
         case YY_SYMBOL_NUMBER_VAL:
         case YY_SYMBOL_VARIABLE:
-            yy_consume(parser);
+            consume(parser);
             // push symbol to stack
             break;
         case YY_SYMBOL_ABS:
@@ -1359,10 +1388,10 @@ static bool parse_term_number(yy_parser_t *parser)
         case YY_SYMBOL_CEIL:
         case YY_SYMBOL_FLOOR:
         case YY_SYMBOL_TRUNC:
-            yy_consume(parser);
-            yy_expect(parser, YY_SYMBOL_PAREN_LEFT);
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
             parse_expr_number(parser);
-            yy_expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
             // bulk to stack
             // push func to stack
             break;
@@ -1370,42 +1399,48 @@ static bool parse_term_number(yy_parser_t *parser)
         case YY_SYMBOL_MIN:
         case YY_SYMBOL_MODULO:
         case YY_SYMBOL_POWER:
-            yy_consume(parser);
-            yy_expect(parser, YY_SYMBOL_PAREN_LEFT);
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
             parse_expr_number(parser);
-            yy_expect(parser, YY_SYMBOL_COMMA);
+            expect(parser, YY_SYMBOL_COMMA);
             parse_expr_number(parser);
-            yy_expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
             // bulk to stack
             // push func to stack
             break;
         case YY_SYMBOL_PAREN_LEFT:
-            yy_consume(parser);
+            consume(parser);
             parse_expr_number(parser);
-            yy_expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
         case YY_SYMBOL_ADDITION_OP:
-            // TODO: check that prev symbol is not an operator
+            if (is_numeric_operator(parser->prev_symbol.type)) {
+                parser->error = YY_ERROR_SYNTAX;
+                break;
+            }
             parser->curr_symbol.type = YY_SYMBOL_PLUS_OP;
-            yy_consume(parser);
+            consume(parser);
             parse_expr_number(parser);
             break;
         case YY_SYMBOL_SUBTRACTION_OP:
-            // TODO: check that prev symbol is not an operator
+            if (is_numeric_operator(parser->prev_symbol.type)) {
+                parser->error = YY_ERROR_SYNTAX;
+                break;
+            }
             parser->curr_symbol.type = YY_SYMBOL_MINUS_OP;
-            yy_consume(parser);
+            consume(parser);
             parse_expr_number(parser);
             // push MINUS to stack
             break;
         default:
-            yy_error(parser, YY_ERROR_SYNTAX);
+            parser->error = YY_ERROR_SYNTAX;
     }
 
     return (parser->error == YY_OK);
 }
 
 /**
- * Parse expression until an unrecognized symbol is found.
+ * Parse a numeric expression until an unrecognized symbol is found.
  * 
  * @param[in] Parser object.
  * 
@@ -1423,7 +1458,7 @@ NUMBER_EXPR_START:
     if (!parse_term_number(parser))
         return false;
 
-    switch(parser->curr_symbol.type)
+    switch (parser->curr_symbol.type)
     {
         case YY_SYMBOL_ADDITION_OP: 
         case YY_SYMBOL_SUBTRACTION_OP: 
@@ -1431,9 +1466,7 @@ NUMBER_EXPR_START:
         case YY_SYMBOL_DIVIDE_OP: 
         case YY_SYMBOL_MODULO_OP: 
         case YY_SYMBOL_POWER_OP: 
-            yy_consume(parser);
-            // assign precedence
-            // assign associativity
+            consume(parser);
             // push op to stack
             goto NUMBER_EXPR_START;
         case YY_SYMBOL_END: 
@@ -1465,175 +1498,232 @@ NUMBER_EXPR_END:
  * 
  * Exceptions:
  * 
- *    * We reject 2 consecutive operators (ex: 1 + -1).
+ *    We reject 2 consecutive operators (ex: 1 + -1).
  */
 yy_retcode_e yy_parse_expr_number(const char *begin, const char *end, yy_stack_t *stack, const char **err)
 {
     if (!begin || !end || begin > end || !stack)
         return YY_ERROR_ARGS;
 
-    yy_parser_t parser = {begin, begin, end, stack};
+    yy_parser_t parser = {begin, end, begin, stack};
 
-    yy_next(&parser);
+    consume(&parser);
     parse_expr_number(&parser);
 
-    if (parser.error == YY_OK && parser.curr_symbol.type != YY_SYMBOL_END) {
+    if (parser.error == YY_OK && parser.curr_symbol.type != YY_SYMBOL_END)
         parser.error = YY_ERROR_SYNTAX;
-        parser.error_location = parser.curr;
-    }
 
     if (err && parser.error != YY_OK)
-        *err = parser.error_location;
+        *err = parser.curr;
 
     return parser.error;
 }
 
 // ==================================================
+#define UNUSED(x) (void)(x)
 
 static yy_token_t func_now(void) {
     return (yy_token_t){0};
 }
 
 static yy_token_t func_datepart(yy_token_t date, yy_token_t part) {
+    UNUSED(date);
+    UNUSED(part);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_dateadd(yy_token_t date, yy_token_t part, yy_token_t value) {
+    UNUSED(date);
+    UNUSED(part);
+    UNUSED(value);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_trim(yy_token_t str) {
+    UNUSED(str);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_lower(yy_token_t str) {
+    UNUSED(str);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_upper(yy_token_t str) {
+    UNUSED(str);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_length(yy_token_t str) {
+    UNUSED(str);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_concat(yy_token_t str1, yy_token_t str2) {
+    UNUSED(str1);
+    UNUSED(str2);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len) {
+    UNUSED(str);
+    UNUSED(start);
+    UNUSED(len);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_abs(yy_token_t x) {
+    UNUSED(x);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_ceil(yy_token_t x) {
+    UNUSED(x);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_floor(yy_token_t x) {
+    UNUSED(x);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_trunc(yy_token_t x) {
+    UNUSED(x);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_sin(yy_token_t x) {
+    UNUSED(x);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_cos(yy_token_t x) {
+    UNUSED(x);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_tan(yy_token_t x) {
+    UNUSED(x);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_exp(yy_token_t x) {
+    UNUSED(x);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_log(yy_token_t x) {
+    UNUSED(x);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_max(yy_token_t x, yy_token_t y) {
+    UNUSED(x);
+    UNUSED(y);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_min(yy_token_t x, yy_token_t y) {
+    UNUSED(x);
+    UNUSED(y);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_sqrt(yy_token_t x) {
+    UNUSED(x);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_pow(yy_token_t x, yy_token_t y) {
+    UNUSED(x);
+    UNUSED(y);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_minus(yy_token_t x) {
+    UNUSED(x);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_mult(yy_token_t x, yy_token_t y) {
+    UNUSED(x);
+    UNUSED(y);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_div(yy_token_t x, yy_token_t y) {
+    UNUSED(x);
+    UNUSED(y);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_mod(yy_token_t x, yy_token_t y) {
+    UNUSED(x);
+    UNUSED(y);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_addition(yy_token_t x, yy_token_t y) {
+    UNUSED(x);
+    UNUSED(y);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_subtraction(yy_token_t x, yy_token_t y) {
+    UNUSED(x);
+    UNUSED(y);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_not(yy_token_t x) {
+    UNUSED(x);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_lt(yy_token_t x, yy_token_t y) {
+    UNUSED(x);
+    UNUSED(y);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_le(yy_token_t x, yy_token_t y) {
+    UNUSED(x);
+    UNUSED(y);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_gt(yy_token_t x, yy_token_t y) {
+    UNUSED(x);
+    UNUSED(y);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_ge(yy_token_t x, yy_token_t y) {
+    UNUSED(x);
+    UNUSED(y);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_eq(yy_token_t x, yy_token_t y) {
+    UNUSED(x);
+    UNUSED(y);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_ne(yy_token_t x, yy_token_t y) {
+    UNUSED(x);
+    UNUSED(y);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_and(yy_token_t x, yy_token_t y) {
+    UNUSED(x);
+    UNUSED(y);
     return (yy_token_t){0};
 }
 
 static yy_token_t func_or(yy_token_t x, yy_token_t y) {
+    UNUSED(x);
+    UNUSED(y);
     return (yy_token_t){0};
 }

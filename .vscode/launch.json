@@ -1,0 +1,29 @@
+{
+  "configurations": [
+    {
+      "name": "(gdb) Launch",
+      "type": "cppdbg",
+      "request": "launch",
+      "program": "${workspaceFolder}/tests",
+      "args": [ "grammar_number" ],
+      "stopAtEntry": false,
+      "cwd": "${fileDirname}",
+      "environment": [],
+      "externalConsole": false,
+      "MIMode": "gdb",
+      "miDebuggerPath": "/usr/bin/gdb",
+      "setupCommands": [
+          {
+              "description": "Enable pretty-printing for gdb",
+              "text": "-enable-pretty-printing",
+              "ignoreFailures": true
+          },
+          {
+            "description": "Ignore SIGPIPE",
+            "text": "handle SIGPIPE nostop noprint pass",
+            "ignoreFailures": true
+          }
+      ]
+    }
+  ]
+}
