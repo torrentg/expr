@@ -1,8 +1,6 @@
 #include "acutest.h"
 #include "expr.c"
 
-#define EPSILON 1e-10
-
 yy_symbol_e get_function_symbol(void (*func)(void))
 {
     for (size_t i = 0; i < (size_t) YY_SYMBOL_END; i++)
@@ -325,7 +323,8 @@ void check_grammar_number_ok(const char *str)
 
 void check_grammar_number_ko(const char *str)
 {
-    yy_stack_t stack = {0};
+    yy_token_t data[64] = {0};
+    yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
     yy_retcode_e rc = yy_parse_expr_number(str, str + strlen(str), &stack, NULL);
 
@@ -854,6 +853,7 @@ void test_grammar_number(void)
     check_grammar_number_ok("1+2*3");
     check_grammar_number_ok("1*2+3");
     check_grammar_number_ok("-3+1");
+    check_grammar_number_ok("+3");
     check_grammar_number_ok("1+(2*3)-3");
     check_grammar_number_ok("1+(2*3)/4-3");
     check_grammar_number_ok("-(1+(2*3)/4)-3");
@@ -863,12 +863,14 @@ void test_grammar_number(void)
     check_grammar_number_ok("((((-1))))");
     check_grammar_number_ok("abs(-PI)");
     check_grammar_number_ok("2 * (-1)");
+    check_grammar_number_ok("min(2+3*4, 1+3*5)");
 
     check_grammar_number_ko(" ");
     check_grammar_number_ko("not_a_var");
     check_grammar_number_ko("+");
+    check_grammar_number_ko("()");
     check_grammar_number_ko("(((((())))))");
-    check_grammar_number_ko("((((((1)))))");
+    check_grammar_number_ko("((1)");
     check_grammar_number_ko("1+(");
     check_grammar_number_ko("1+()");
     check_grammar_number_ko("1*/3");
@@ -882,6 +884,7 @@ void test_grammar_number(void)
     check_grammar_number_ko("+-1"); // two consecutive operators
     check_grammar_number_ko("++1"); // two consecutive operators
     check_grammar_number_ko("1++1"); // two consecutive operators
+    check_grammar_number_ko("1+-1"); // two consecutive operators
     check_grammar_number_ko("2 * -1"); // two consecutive operators
 }
 

@@ -32,6 +32,7 @@ SOFTWARE.
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
+#include <fenv.h>
 #include "expr.h"
 
 /**
@@ -40,10 +41,15 @@ SOFTWARE.
  */
 
 #if defined(__GNUC__) || defined(__clang__) || defined(__INTEL_LLVM_COMPILER) 
-    #define INLINE     __attribute__((const)) __attribute__((always_inline)) inline
+    #define INLINE     __attribute__((always_inline)) inline
 #else
     #define INLINE     /**/
 #endif
+
+#define EPSILON 1e-13
+
+#define MIN(a,b) (((a)<(b))?(a):(b))
+#define MAX(a,b) (((a)>(b))?(a):(b))
 
 typedef yy_token_t (*yy_func_0)(void);
 typedef yy_token_t (*yy_func_1)(yy_token_t);
@@ -1240,7 +1246,7 @@ NEXT_IDENTIFIER_END:
     }
 
     return_error(YY_ERROR_SYNTAX);
-    
+
 NEXT_VERTICAL_BAR: // ||
 
     if (++ptr == end)
@@ -1250,8 +1256,6 @@ NEXT_VERTICAL_BAR: // ||
         case '|': return_ok(YY_SYMBOL_OR_OP, 2);
         default: return_error(YY_ERROR_SYNTAX);
     }
-
-    return YY_OK;
 }
 
 /**
@@ -1376,7 +1380,7 @@ static yy_token_t * top(yy_stack_t *stack)
 {
     if (stack->len == 0)
         return NULL;
-    
+
     return (&stack->data[stack->len - 1]);
 }
 
@@ -1405,7 +1409,8 @@ static bool try_to_eval_function(yy_parser_t *parser, const yy_token_t *token)
     if (token->type != YY_TOKEN_FUNCTION)
         return false;
 
-    assert(parser->stack->len >= token->function.num_args);
+    if (parser->stack->len < token->function.num_args)
+        return false;
 
     if (token->function.num_args == 0)
         return false;
@@ -1417,7 +1422,7 @@ static bool try_to_eval_function(yy_parser_t *parser, const yy_token_t *token)
 
     if (!token1 || !is_token_fixed_value(token1))
         return false;
-    
+
     if (token->function.num_args == 1) {
         *token1 = ((yy_func_1) token->function.ptr)(*token1);
         return true;
@@ -1427,7 +1432,7 @@ static bool try_to_eval_function(yy_parser_t *parser, const yy_token_t *token)
 
     if (!token2 || !is_token_fixed_value(token2))
         return false;
-    
+
     if (token->function.num_args == 2) {
         *token2 = ((yy_func_2) token->function.ptr)(*token2, *token1);
         pop(parser->stack);
@@ -1438,7 +1443,7 @@ static bool try_to_eval_function(yy_parser_t *parser, const yy_token_t *token)
 
     if (!token3 || !is_token_fixed_value(token3))
         return false;
-    
+
     if (token->function.num_args == 3) {
         *token3 = ((yy_func_3) token->function.ptr)(*token3, *token2, *token1);
         pop(parser->stack);
@@ -1457,8 +1462,9 @@ static void push_to_stack(yy_parser_t *parser, const yy_token_t *token)
 
     yy_stack_t *stack = parser->stack;
 
-    // if (try_to_eval_function(parser, token))
-    //     return;
+    // TODO: online eval depends on parser flag
+    if (try_to_eval_function(parser, token))
+        return;
 
     if (stack->len >= stack->reserved) {
         assert(stack->len == stack->reserved);
@@ -1582,7 +1588,12 @@ static void process(yy_parser_t *parser)
     {
         while ((op = top(parser->operators)) != NULL)
         {
-            assert(op->type != YY_TOKEN_NULL);
+            if (op->type == YY_TOKEN_NULL) {
+                // unmatched parentesis
+                parser->error = YY_ERROR_SYNTAX;
+                return;
+            }
+
             push_to_stack(parser, op);
             pop(parser->operators);
         }
@@ -1834,10 +1845,12 @@ yy_retcode_e yy_parse_expr_number(const char *begin, const char *end, yy_stack_t
 }
 
 // ==================================================
-#define UNUSED(x) (void)(x)
 
 #undef return_error
 #define return_error(err_) return (yy_token_t){ .type = YY_TOKEN_ERROR, .error = err_ };
+#define return_number(val_) return (yy_token_t){ .type = YY_TOKEN_NUMBER, .number_val = val_ };
+#define return_datetime(val_) return (yy_token_t){ .type = YY_TOKEN_DATETIME, .datetime_val = val_ };
+#define UNUSED(x) (void)(x)
 
 static yy_token_t func_now(void) {
     return (yy_token_t){0};
@@ -1889,61 +1902,162 @@ static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len) 
     return (yy_token_t){0};
 }
 
-static yy_token_t func_abs(yy_token_t x) {
-    UNUSED(x);
-    return (yy_token_t){0};
+static yy_token_t func_abs(yy_token_t x)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    x.number_val = fabs(x.number_val);
+
+    return x;
 }
 
-static yy_token_t func_ceil(yy_token_t x) {
-    UNUSED(x);
-    return (yy_token_t){0};
+static yy_token_t func_ceil(yy_token_t x)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    x.number_val = ceil(x.number_val);
+
+    return x;
 }
 
-static yy_token_t func_floor(yy_token_t x) {
-    UNUSED(x);
-    return (yy_token_t){0};
+static yy_token_t func_floor(yy_token_t x)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    x.number_val = floor(x.number_val);
+
+    return x;
 }
 
-static yy_token_t func_trunc(yy_token_t x) {
-    UNUSED(x);
-    return (yy_token_t){0};
+static yy_token_t func_trunc(yy_token_t x)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    x.number_val = trunc(x.number_val);
+
+    return x;
 }
 
-static yy_token_t func_sin(yy_token_t x) {
-    UNUSED(x);
-    return (yy_token_t){0};
+static yy_token_t func_sin(yy_token_t x)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    x.number_val = sin(x.number_val);
+
+    return x;
 }
 
-static yy_token_t func_cos(yy_token_t x) {
-    UNUSED(x);
-    return (yy_token_t){0};
+static yy_token_t func_cos(yy_token_t x)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    x.number_val = cos(x.number_val);
+
+    return x;
 }
 
-static yy_token_t func_tan(yy_token_t x) {
-    UNUSED(x);
-    return (yy_token_t){0};
+static yy_token_t func_tan(yy_token_t x)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    errno = 0;
+
+    int fe_state = fetestexcept(FE_ALL_EXCEPT);
+
+    feclearexcept(FE_ALL_EXCEPT);
+
+    x.number_val = tan(x.number_val);
+
+    feraiseexcept(fe_state);
+
+    if (errno != 0 || x.number_val == HUGE_VAL || x.number_val == -HUGE_VAL)
+        return_error(YY_ERROR_HUGE);
+
+    return x;
 }
 
-static yy_token_t func_exp(yy_token_t x) {
-    UNUSED(x);
-    return (yy_token_t){0};
+static yy_token_t func_exp(yy_token_t x)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    if (x.number_val <= 0.0)
+        return_error(YY_ERROR_NAN);
+
+    errno = 0;
+
+    int fe_state = fetestexcept(FE_ALL_EXCEPT);
+
+    feclearexcept(FE_ALL_EXCEPT);
+
+    x.number_val = exp(x.number_val);
+
+    feraiseexcept(fe_state);
+
+    if (errno != 0 && x.number_val == HUGE_VAL)
+        return_error(YY_ERROR_HUGE);
+
+    return x;
 }
 
-static yy_token_t func_log(yy_token_t x) {
-    UNUSED(x);
-    return (yy_token_t){0};
+static yy_token_t func_log(yy_token_t x)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    if (x.number_val <= 0.0)
+        return_error(YY_ERROR_NAN);
+
+    x.number_val = log(x.number_val);
+
+    return x;
 }
 
-static yy_token_t func_max(yy_token_t x, yy_token_t y) {
-    UNUSED(x);
-    UNUSED(y);
-    return (yy_token_t){0};
+static yy_token_t func_max(yy_token_t x, yy_token_t y)
+{
+    if (x.type != y.type)
+        return_error(YY_ERROR_VALUE);
+
+    if (x.type == YY_TOKEN_NUMBER)
+    {
+        double val = fmax(x.number_val, y.number_val);
+        return_number(val);
+    }
+
+    if (x.type == YY_TOKEN_DATETIME)
+    {
+        uint64_t val = MAX(x.datetime_val, y.datetime_val);
+        return_datetime(val);
+    }
+
+    return_error(YY_ERROR_VALUE);
 }
 
-static yy_token_t func_min(yy_token_t x, yy_token_t y) {
-    UNUSED(x);
-    UNUSED(y);
-    return (yy_token_t){0};
+static yy_token_t func_min(yy_token_t x, yy_token_t y)
+{
+    if (x.type != y.type)
+        return_error(YY_ERROR_VALUE);
+
+    if (x.type == YY_TOKEN_NUMBER)
+    {
+        double val = fmin(x.number_val, y.number_val);
+        return_number(val);
+    }
+
+    if (x.type == YY_TOKEN_DATETIME)
+    {
+        uint64_t val = MIN(x.datetime_val, y.datetime_val);
+        return_datetime(val);
+    }
+
+    return_error(YY_ERROR_VALUE);
 }
 
 static yy_token_t func_sqrt(yy_token_t x)
@@ -1951,7 +2065,7 @@ static yy_token_t func_sqrt(yy_token_t x)
     if (x.type != YY_TOKEN_NUMBER)
         return_error(YY_ERROR_VALUE);
 
-    if (x.number_val < 0)
+    if (x.number_val < 0.0)
         return_error(YY_ERROR_NAN);
 
     x.number_val = sqrt(x.number_val);
@@ -1959,10 +2073,42 @@ static yy_token_t func_sqrt(yy_token_t x)
     return x;
 }
 
-static yy_token_t func_pow(yy_token_t x, yy_token_t y) {
-    UNUSED(x);
-    UNUSED(y);
-    return (yy_token_t){0};
+static yy_token_t func_pow(yy_token_t x, yy_token_t y)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    if (y.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    int fe_state = fetestexcept(FE_ALL_EXCEPT);
+
+    errno = 0;
+
+    feclearexcept(FE_ALL_EXCEPT);
+
+    double val = pow(x.number_val, y.number_val);
+
+    feraiseexcept(fe_state);
+
+    if (errno == ERANGE)
+    {
+        if (val == HUGE_VAL)
+            return_error(YY_ERROR_HUGE);
+
+        if (val == +0.0 || val == -0.0)
+            return_number(0.0);
+
+        return_error(YY_ERROR_NAN);
+    }
+
+    if (errno == EDOM)
+        return_error(YY_ERROR_NAN);
+
+    if (val == HUGE_VAL || val == -HUGE_VAL)
+        return_error(YY_ERROR_HUGE);
+
+    return_number(val);
 }
 
 static yy_token_t func_minus(yy_token_t x)
@@ -1983,34 +2129,75 @@ static yy_token_t func_ident(yy_token_t x)
     return x;
 }
 
-static yy_token_t func_mult(yy_token_t x, yy_token_t y) {
-    UNUSED(x);
-    UNUSED(y);
-    return (yy_token_t){0};
+static yy_token_t func_mult(yy_token_t x, yy_token_t y)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    if (y.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    double val = x.number_val * y.number_val;
+
+    return_number(val);
 }
 
-static yy_token_t func_div(yy_token_t x, yy_token_t y) {
-    UNUSED(x);
-    UNUSED(y);
-    return (yy_token_t){0};
+static yy_token_t func_div(yy_token_t x, yy_token_t y)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    if (y.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    if (fabs(y.number_val) < EPSILON)
+        return_error(YY_ERROR_DIV_0);
+
+    double val = x.number_val / y.number_val;
+
+    return_number(val);
 }
 
-static yy_token_t func_mod(yy_token_t x, yy_token_t y) {
-    UNUSED(x);
-    UNUSED(y);
-    return (yy_token_t){0};
+static yy_token_t func_mod(yy_token_t x, yy_token_t y)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    if (y.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    if (fabs(y.number_val) < EPSILON)
+        return_error(YY_ERROR_DIV_0);
+
+    double val = fmod(x.number_val, y.number_val);
+
+    return_number(val);
 }
 
-static yy_token_t func_addition(yy_token_t x, yy_token_t y) {
-    UNUSED(x);
-    UNUSED(y);
-    return (yy_token_t){0};
+static yy_token_t func_addition(yy_token_t x, yy_token_t y)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    if (y.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    double val = x.number_val + y.number_val;
+
+    return_number(val);
 }
 
-static yy_token_t func_subtraction(yy_token_t x, yy_token_t y) {
-    UNUSED(x);
-    UNUSED(y);
-    return (yy_token_t){0};
+static yy_token_t func_subtraction(yy_token_t x, yy_token_t y)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    if (y.type != YY_TOKEN_NUMBER)
+        return_error(YY_ERROR_VALUE);
+
+    double val = x.number_val - y.number_val;
+
+    return_number(val);
 }
 
 static yy_token_t func_not(yy_token_t x) {
