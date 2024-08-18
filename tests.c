@@ -3,6 +3,127 @@
 
 #define EPSILON 1e-10
 
+yy_symbol_e get_function_symbol(void (*func)(void))
+{
+    for (size_t i = 0; i < (size_t) YY_SYMBOL_END; i++)
+    {
+        if (symbol_to_token[i].type != YY_TOKEN_FUNCTION)
+            continue;
+        
+        if (symbol_to_token[i].function.ptr == func)
+            return (yy_symbol_e) i;
+    }
+
+    return YY_SYMBOL_NONE;
+}
+
+const char * symbol_to_str(yy_symbol_e type)
+{
+    switch (type)
+    {
+        case YY_SYMBOL_NONE: return "NONE";
+        case YY_SYMBOL_TRUE: return "TRUE";
+        case YY_SYMBOL_FALSE: return "FALSE";
+        case YY_SYMBOL_NUMBER_VAL: return "NUMBER_VAL";
+        case YY_SYMBOL_DATETIME_VAL: return "DATETIME_VAL";
+        case YY_SYMBOL_STRING_VAL: return "STRING_VAL";
+        case YY_SYMBOL_VARIABLE: return "VARIABLE";
+        case YY_SYMBOL_CONST_E: return "CONST_E";
+        case YY_SYMBOL_CONST_PI: return "CONST_PI";
+        case YY_SYMBOL_PAREN_LEFT: return "PAREN_LEFT";
+        case YY_SYMBOL_PAREN_RIGHT: return "PAREN_RIGHT";
+        case YY_SYMBOL_COMMA: return "COMMA";
+        case YY_SYMBOL_AND_OP: return "AND_OP";
+        case YY_SYMBOL_OR_OP: return "OR_OP";
+        case YY_SYMBOL_EQUALS_OP: return "EQUALS_OP";
+        case YY_SYMBOL_DISTINCT_OP: return "DISTINCT_OP";
+        case YY_SYMBOL_LESS_OP: return "LESS_OP";
+        case YY_SYMBOL_LESS_EQUALS_OP: return "LESS_EQUALS_OP";
+        case YY_SYMBOL_GREAT_OP: return "GREAT_OP";
+        case YY_SYMBOL_GREAT_EQUALS_OP: return "GREAT_EQUALS_OP";
+        case YY_SYMBOL_NOT_OP: return "NOT_OP";
+        case YY_SYMBOL_PLUS_OP: return "PLUS_OP";
+        case YY_SYMBOL_MINUS_OP: return "MINUS_OP";
+        case YY_SYMBOL_ADDITION_OP: return "ADDITION_OP";
+        case YY_SYMBOL_SUBTRACTION_OP: return "SUBTRACTION_OP";
+        case YY_SYMBOL_PRODUCT_OP: return "PRODUCT_OP";
+        case YY_SYMBOL_DIVIDE_OP: return "DIVIDE_OP";
+        case YY_SYMBOL_MODULO_OP: return "MODULO_OP";
+        case YY_SYMBOL_POWER_OP: return "POWER_OP";
+        case YY_SYMBOL_ABS: return "ABS";
+        case YY_SYMBOL_MIN: return "MIN";
+        case YY_SYMBOL_MAX: return "MAX";
+        case YY_SYMBOL_MODULO: return "MODULO";
+        case YY_SYMBOL_POWER: return "POWER";
+        case YY_SYMBOL_SQRT: return "SQRT";
+        case YY_SYMBOL_SIN: return "SIN";
+        case YY_SYMBOL_COS: return "COS";
+        case YY_SYMBOL_TAN: return "TAN";
+        case YY_SYMBOL_EXP: return "EXP";
+        case YY_SYMBOL_LOG: return "LOG";
+        case YY_SYMBOL_TRUNC: return "TRUNC";
+        case YY_SYMBOL_CEIL: return "CEIL";
+        case YY_SYMBOL_FLOOR: return "FLOOR";
+        case YY_SYMBOL_NOW: return "NOW";
+        case YY_SYMBOL_DATEPART: return "DATEPART";
+        case YY_SYMBOL_DATEADD: return "DATEADD";
+        case YY_SYMBOL_LENGTH: return "LENGTH";
+        case YY_SYMBOL_LOWER: return "LOWER";
+        case YY_SYMBOL_UPPER: return "UPPER";
+        case YY_SYMBOL_TRIM: return "TRIM";
+        case YY_SYMBOL_CONCAT: return "CONCAT";
+        case YY_SYMBOL_SUBSTR: return "SUBSTR";
+        case YY_SYMBOL_END: return "END";
+        default: return "UNKNOW";
+    }
+}
+
+const char * get_function_name(void (*func)(void))
+{
+    return symbol_to_str(get_function_symbol(func));
+}
+
+void print_stack(const yy_stack_t *stack)
+{
+    for (size_t i = 0; i < stack->len; i++)
+    {
+        const yy_token_t token = stack->data[i];
+
+        switch(token.type)
+        {
+            case YY_TOKEN_NULL:
+                printf("NULL");
+                break;
+            case YY_TOKEN_BOOL:
+                printf("%s", (token.bool_val ? "true" : "false"));
+                break;
+            case YY_TOKEN_NUMBER:
+                printf("%g", token.number_val);
+                break;
+            case YY_TOKEN_DATETIME:
+                printf("%lu", token.datetime_val);
+                break;
+            case YY_TOKEN_STRING:
+                printf("%.*s", token.str_val.len, token.str_val.ptr);
+                break;
+            case YY_TOKEN_VARIABLE:
+                printf("%.*s", token.variable.len, token.variable.ptr);
+                break;
+            case YY_TOKEN_FUNCTION:
+                printf("%s", get_function_name(token.function.ptr));
+                break;
+            case YY_TOKEN_ERROR:
+                printf("ERROR");
+                break;
+            default:
+                assert(false);
+        }
+
+        printf(" ");
+    }
+
+}
+
 void check_number_ko(const char *str, yy_retcode_e expected_result)
 {
     yy_symbol_t symbol = {0};
@@ -104,8 +225,8 @@ void _check_boolean_ok(const char *str, size_t len, bool expected_val)
     TEST_MSG("Case='%.*s', error=failed", (int) len, str);
     TEST_CHECK(symbol.type == YY_SYMBOL_TRUE || symbol.type == YY_SYMBOL_FALSE);
     TEST_MSG("Case='%.*s', error=not-a-boolean", (int) len, str);
-    TEST_CHECK(symbol.bool_val == expected_val);
-    TEST_MSG("Case='%.*s', expected=%d, result=%d", (int) len, str, (int) expected_val, (int) symbol.bool_val);
+    TEST_CHECK((expected_val && symbol.type == YY_SYMBOL_TRUE) || (!expected_val && symbol.type == YY_SYMBOL_FALSE));
+    TEST_MSG("Case='%.*s', error=unexpected-value", (int) len, str);
     TEST_CHECK(symbol.lexeme.len == (expected_val ? 4 : 5));
     TEST_MSG("Case='%.*s', error=invalid-lexeme-len", (int) len, str);
 }
@@ -189,12 +310,17 @@ void check_spaces(const char *str, int end_len, size_t expected_len)
 
 void check_grammar_number_ok(const char *str)
 {
-    yy_stack_t stack = {0};
+    yy_token_t data[64] = {0};
+    yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
     yy_retcode_e rc = yy_parse_expr_number(str, str + strlen(str), &stack, NULL);
 
     TEST_CHECK(rc == YY_OK);
     TEST_MSG("Case='%s', error=failed", str);
+
+    printf("%s --> ", str);
+    print_stack(&stack);
+    printf("\n");
 }
 
 void check_grammar_number_ko(const char *str)
@@ -723,8 +849,11 @@ void test_spaces(void)
 void test_grammar_number(void)
 {
     check_grammar_number_ok("1+2");
+    check_grammar_number_ok("1+2-3");
+    check_grammar_number_ok("1*2/3");
     check_grammar_number_ok("1+2*3");
-    check_grammar_number_ok("1+2*3");
+    check_grammar_number_ok("1*2+3");
+    check_grammar_number_ok("-3+1");
     check_grammar_number_ok("1+(2*3)-3");
     check_grammar_number_ok("1+(2*3)/4-3");
     check_grammar_number_ok("-(1+(2*3)/4)-3");

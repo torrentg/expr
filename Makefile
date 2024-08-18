@@ -1,5 +1,6 @@
 #-D_POSIX_C_SOURCE=200809L -Wpedantic 
 CFLAGS= -std=c11 -Wall -Wextra -Wnull-dereference -D_DEFAULT_SOURCE
+LDFLAGS= -lm
 
 all: tests
 

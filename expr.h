@@ -69,14 +69,22 @@ typedef enum yy_type_e {
 
 typedef enum yy_token_e {
     YY_TOKEN_NULL,                  //!< Unassigned token.
-    YY_TOKEN_ERROR,                 //!< Evaluation error.
     YY_TOKEN_BOOL,                  //!< Bool value.
     YY_TOKEN_NUMBER,                //!< Number value.
     YY_TOKEN_DATETIME,              //!< Timestamp value.
     YY_TOKEN_STRING,                //!< String value.
     YY_TOKEN_VARIABLE,              //!< Variable.
-    YY_TOKEN_FUNCTION               //!< Function.
+    YY_TOKEN_FUNCTION,              //!< Function.
+    YY_TOKEN_ERROR,                 //!< Evaluation error.
 } yy_token_e;
+
+typedef enum yy_error_e {
+    YY_ERROR_DIV_0,                 //!< Number divided by 0.
+    YY_ERROR_NAN,                   //!< Not a number (ex: 0/0).
+    YY_ERROR_REF,                   //!< Variable not found.
+    YY_ERROR_HUGE,                  //!< Numeric overflow.
+    YY_ERROR_VALUE,                 //!< Invalid value (ex: variable contains unexpected type).
+} yy_error_e;
 
 typedef struct yy_token_t {
     union
@@ -87,7 +95,7 @@ typedef struct yy_token_t {
         yy_str_t str_val;           //!< String value.
         yy_str_t variable;          //!< Variable name.
         yy_func_t function;         //!< Function data.
-        yy_retcode_e error;         //!< Error type.
+        yy_error_e error;           //!< Error type.
     };
     yy_token_e type;                //!< Token type (bool, number, etc.).
 } yy_token_t;
@@ -96,8 +104,6 @@ typedef struct yy_stack_t {
     yy_token_t *data;               //!< Tokens list.
     uint32_t reserved;              //!< Numbers of allocated tokens.
     uint32_t len;                   //!< Number of tokens in the stack.
-    yy_type_e result_type;          //!< Result type.
-    bool fixed_size;                //!< Memory allocation managed by yy.
 } yy_stack_t;
 
 /**
