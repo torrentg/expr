@@ -28,9 +28,33 @@ SOFTWARE.
 #ifndef EXPR_H
 #define EXPR_H
 
+/**
+ * Operators:
+ * 
+ * @see https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B
+ * 
+ *    Precedence Type                 Symbols            Associativity
+ *    ----------------------------------------------------------------
+ *         1     Grouping             ()                 left-to-right 
+ *         2     Power                ^                  left-to-right (like octave)
+ *         3     Not, plus minus      !, +, -            right-to-left 
+ *         4     Prod, div, mod       *, /, %            left-to-right 
+ *         5     Add, subtract        +, -               left-to-right 
+ *         6     comparison           <, <=, >, >=       left-to-right
+ *         7     equal                ==, !=             left-to-right
+ *         8     and                  &&                 left-to-right
+ *         9     or                   ||                 left-to-right
+ */
+
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
+
+#if defined(__GNUC__) || defined(__clang__) || defined(__INTEL_LLVM_COMPILER) 
+    #define PACKED     __attribute__((__packed__))
+#else
+    #define PACKED     /**/
+#endif
 
 typedef enum yy_retcode_e {
     YY_OK,                          //!< No errors.
@@ -38,6 +62,7 @@ typedef enum yy_retcode_e {
     YY_ERROR_ARGS,                  //!< Invalid arguments.
     YY_ERROR_EMPTY,                 //!< Empty expression.
     YY_ERROR_SYNTAX,                //!< Syntax error.
+    YY_ERROR_EVAL,                  //!< Evaluation error.
     YY_ERROR_MEM,                   //!< Not enough memory.
     YY_ERROR_INVALID_BOOLEAN,       //!< Invalid boolean.
     YY_ERROR_INVALID_NUMBER,        //!< Invalid number.
@@ -48,24 +73,17 @@ typedef enum yy_retcode_e {
     YY_ERROR_RANGE_DATETIME,        //!< Timestamp out-of-range.
 } yy_retcode_e;
 
-typedef struct yy_str_t {
+typedef struct PACKED yy_str_t {
     const char *ptr;                //!< Pointer to data (not NUL-ended).
     uint32_t len;                   //!< String length.
 } yy_str_t;
 
-typedef struct yy_func_t {
+typedef struct PACKED yy_func_t {
     void (*ptr)(void);              //!< Pointer to function.
     uint8_t num_args;               //!< Number of arguments.
     uint8_t precedence;             //!< Operator precedence.
     bool right_to_left;             //!< Operator associativity.
 } yy_func_t;
-
-typedef enum yy_type_e {
-    YY_TYPE_BOOL,                   //!< Boolean type.
-    YY_TYPE_NUMBER,                 //!< Number type.
-    YY_TYPE_DATETIME,               //!< Timestamp type.
-    YY_TYPE_STRING                  //!< String type.
-} yy_type_e;
 
 typedef enum yy_token_e {
     YY_TOKEN_NULL,                  //!< Unassigned token.
@@ -87,7 +105,7 @@ typedef enum yy_error_e {
 } yy_error_e;
 
 typedef struct yy_token_t {
-    union
+    union PACKED
     {
         bool bool_val;              //!< Boolean value.
         double number_val;          //!< Number value.
@@ -110,6 +128,8 @@ typedef struct yy_stack_t {
  * Parse a single value.
  * 
  * Parse full content (^.*$).
+ * 
+ * Use these functions to parse variable content, not formulas.
  * 
  * @param[in] begin String to parse (without initial spaces).
  * @param[in] end One char after the string end.

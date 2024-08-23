@@ -27,12 +27,10 @@ SOFTWARE.
 
 #include <math.h>
 #include <time.h>
-#include <ctype.h>
 #include <errno.h>
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
-#include <fenv.h>
 #include "expr.h"
 
 /**
@@ -41,15 +39,27 @@ SOFTWARE.
  */
 
 #if defined(__GNUC__) || defined(__clang__) || defined(__INTEL_LLVM_COMPILER) 
-    #define INLINE     __attribute__((always_inline)) inline
+    #define INLINE        __attribute__((always_inline)) inline
+    #define likely(x)     __builtin_expect(!!(x), 1)
+    #define unlikely(x)   __builtin_expect(!!(x), 0)
 #else
-    #define INLINE     /**/
+    #define INLINE        /**/
+    #define likely(x)     x
+    #define unlikely(x)   x
 #endif
-
-#define EPSILON 1e-13
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
+
+#ifndef M_E
+    #define M_E     2.7182818284590452354
+#endif
+
+#ifndef M_PI
+    #define M_PI    3.14159265358979323846
+#endif
+
+#define FPTR  (void (*)(void))
 
 typedef yy_token_t (*yy_func_0)(void);
 typedef yy_token_t (*yy_func_1)(yy_token_t);
@@ -226,34 +236,6 @@ static const yy_identifier_t identifiers[] =
 
 #define NUM_IDENTIFIERS (sizeof(identifiers)/sizeof(yy_identifier_t))
 
-/**
- * Operators:
- * 
- * @see https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B
- * 
- *    Precedence Type                 Symbols            Associativity
- *    ----------------------------------------------------------------
- *         1     Grouping             ()                 left-to-right 
- *         2     Power                ^                  left-to-right (like octave)
- *         3     Not, plus minus      !, +, -            right-to-left 
- *         4     Prod, div, mod       *, /, %            left-to-right 
- *         5     Add, subtract        +, -               left-to-right 
- *         6     comparison           <, <=, >, >=       left-to-right
- *         7     equal                ==, !=             left-to-right
- *         8     and                  &&                 left-to-right
- *         9     or                   ||                 left-to-right
- */
-
-#ifndef M_E
-    #define M_E     2.7182818284590452354
-#endif
-
-#ifndef M_PI
-    #define M_PI    3.14159265358979323846
-#endif
-
-#define FPTR  (void (*)(void))
-
 static const yy_token_t symbol_to_token[] =
 {
     [YY_SYMBOL_NUMBER_VAL]      = { .type = YY_TOKEN_NUMBER   }, 
@@ -285,7 +267,7 @@ static const yy_token_t symbol_to_token[] =
     [YY_SYMBOL_GREAT_EQUALS_OP] = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_ge         , 2, 6 } },
     [YY_SYMBOL_EQUALS_OP]       = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_eq         , 2, 7 } },
     [YY_SYMBOL_DISTINCT_OP]     = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_ne         , 2, 7 } },
-    [YY_SYMBOL_AND_OP]          = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_and        , 2, 8 } }, 
+    [YY_SYMBOL_AND_OP]          = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_and        , 2, 8 } },
     [YY_SYMBOL_OR_OP]           = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_or         , 2, 9 } },
 
     [YY_SYMBOL_ABS]             = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_abs        , 1 } },
@@ -328,11 +310,14 @@ static bool is_leap_year(int year) {
  * YY_SYMBOL_NUMBER_VAL
  *    - regex := (0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?(0|[1-9][0-9]*))?
  *    - range := @see https://en.wikipedia.org/wiki/Double-precision_floating-point_format
+ *    - format := JSON-format, RFC-7159 (section 6 -numbers-)
+ *    - see := https://tools.ietf.org/html/rfc7159 (section 6 -numbers-)
  * 
  * Unsupported strtod() valid cases:
  *    - Non-zero number starting with zero: 00, 03, 003.14
  *    - Number starting with dot: .5, .314e1
  *    - Number ending with dot: 1., 42.
+ *    - Dot without fractional part: 1.e1
  *    - Non-zero exponent starting with zero: 1e04
  * 
  * This function was inspired by re2c generated code:
@@ -350,6 +335,9 @@ static bool is_leap_year(int year) {
  *     *\/
  *   }
  * 
+ * Alternatives to consider:
+ *   - https://github.com/lemire/fast_double_parser (need port to C)
+ * 
  * @param[in] begin String to parse (without initial spaces).
  * @param[in] end One char after the string end.
  * @param[out] symbol Parsed symbol.
@@ -363,10 +351,12 @@ static yy_retcode_e parse_number(const char *begin, const char *end, yy_symbol_t
     assert(begin && end && begin <= end && symbol);
 
     char buf[128];
-    const char *ptr = begin;
     size_t len = 0;
+    int64_t int_val = 0;
+    double number_val;
+    const char *ptr = begin;
 
-    if (ptr == end)
+    if (unlikely(ptr == end))
         return YY_ERROR_INVALID_NUMBER;
 
     switch (*ptr) {
@@ -378,7 +368,7 @@ static yy_retcode_e parse_number(const char *begin, const char *end, yy_symbol_t
 
 NUMBER_INTEGER_PART_0:
 
-    if (++ptr == end)
+    if (unlikely(++ptr == end))
         goto NUMBER_READ_INTEGER;
 
     switch (*ptr) {
@@ -391,7 +381,7 @@ NUMBER_INTEGER_PART_0:
 
 NUMBER_INTEGER_PART_NON_0:
 
-    if (++ptr == end)
+    if (unlikely(++ptr == end))
         goto NUMBER_READ_INTEGER;
 
     switch (*ptr) {
@@ -404,7 +394,7 @@ NUMBER_INTEGER_PART_NON_0:
 
 NUMBER_FRACTION_START:
 
-    if (++ptr == end)
+    if (unlikely(++ptr == end))
         return YY_ERROR_INVALID_NUMBER;
 
     switch (*ptr) {
@@ -414,7 +404,7 @@ NUMBER_FRACTION_START:
 
 NUMBER_FRACTION_CONT:
 
-    if (++ptr == end)
+    if (unlikely(++ptr == end))
         goto NUMBER_READ_FLOAT;
 
     switch (*ptr) {
@@ -426,7 +416,7 @@ NUMBER_FRACTION_CONT:
 
 NUMBER_EXPONENT_START:
 
-    if (++ptr == end)
+    if (unlikely(++ptr == end))
         return YY_ERROR_INVALID_NUMBER;
 
     switch (*ptr) {
@@ -439,7 +429,7 @@ NUMBER_EXPONENT_START:
 
 NUMBER_EXPONENT_NUM_START:
 
-    if (++ptr == end)
+    if (unlikely(++ptr == end))
         return YY_ERROR_INVALID_NUMBER;
 
     switch (*ptr) {
@@ -450,7 +440,7 @@ NUMBER_EXPONENT_NUM_START:
 
 NUMBER_EXPONENT_0:
 
-    if (++ptr == end)
+    if (unlikely(++ptr == end))
         goto NUMBER_READ_FLOAT;
 
     switch (*ptr) {
@@ -460,7 +450,7 @@ NUMBER_EXPONENT_0:
 
 NUMBER_EXPONENT_NUM_CONT:
 
-    if (++ptr == end)
+    if (unlikely(++ptr == end))
         goto NUMBER_READ_FLOAT;
 
     switch (*ptr) {
@@ -475,8 +465,6 @@ NUMBER_READ_INTEGER:
 
     if ((len = ptr - begin) > 16)  // 16 = length(2^53) in base-10
         return YY_ERROR_RANGE_NUMBER;
-
-    int64_t int_val = 0;
 
     for (const char *aux = begin; aux < ptr; ++aux)
         int_val = int_val * 10 + (*aux - '0');
@@ -503,7 +491,7 @@ NUMBER_READ_FLOAT:
     buf[len] = 0;
     errno = 0;
 
-    double float_val = strtod(buf, NULL);
+    number_val = strtod(buf, NULL);
 
     if (errno == ERANGE)
         return YY_ERROR_RANGE_NUMBER;
@@ -511,7 +499,7 @@ NUMBER_READ_FLOAT:
     symbol->lexeme.ptr = begin;
     symbol->lexeme.len = (uint32_t) len;
     symbol->type = YY_SYMBOL_NUMBER_VAL;
-    symbol->number_val = float_val;
+    symbol->number_val = number_val;
 
     return YY_OK;
 }
@@ -885,7 +873,7 @@ STRING_NEXT_CHAR:
         return YY_ERROR_INVALID_STRING;
 
     switch (*ptr) {
-        case 0: return YY_ERROR_INVALID_STRING;
+        case '\0': return YY_ERROR_INVALID_STRING;
         case '\\': goto STRING_ESCAPED_CHAR;
         case '"': goto STRING_END;
         default: goto STRING_NEXT_CHAR;
@@ -1078,15 +1066,54 @@ VARIABLE_END:
 }
 
 #define return_ok(symbol_, len_) do { \
-    symbol->type = symbol_; \
     symbol->lexeme.ptr = begin; \
     symbol->lexeme.len = len_; \
+    symbol->type = symbol_; \
     return YY_OK; \
 } while(0)
 
 #define return_error(err_) do { \
     return err_; \
 } while(0)
+
+/**
+ * Search the identifier matching the given string
+ * using the binary search algo on the identifiers list.
+ * 
+ * @param[in] begin String to parse (without initial spaces).
+ * @param[in] len Identifier length.
+ * 
+ * @return The identifier,
+ *         NULL if not found.
+ */
+INLINE
+static const yy_identifier_t * get_identifier(const char *str, size_t len)
+{
+    int imin = 0;
+    int imax = NUM_IDENTIFIERS - 1;
+
+    while (imax >= imin)
+    {
+        int i = imin + (imax-imin) / 2;
+
+        int c = *str - identifiers[i].str[0];
+
+        if (c == 0)
+        {
+            c = strncmp(str, identifiers[i].str, len);
+            c = (c != 0 ? c : '\0' - identifiers[i].str[len]);
+        }
+
+        if (c == 0)
+            return &identifiers[i];
+        else if (c > 0)
+            imin = i + 1;
+        else
+            imax = i - 1;
+    }
+
+    return NULL;
+}
 
 /**
  * Parse symbol.
@@ -1115,10 +1142,10 @@ static yy_retcode_e parse_symbol(const char *begin, const char *end, yy_symbol_t
     assert(symbol);
 
     const char *ptr = begin;
-    yy_retcode_e rc = YY_OK;
+    const yy_identifier_t *identifier;
     size_t len = 0;
 
-    if (begin == end)
+    if (unlikely(begin == end))
         return_ok(YY_SYMBOL_END, 0);
 
     switch (*ptr) {
@@ -1147,7 +1174,7 @@ static yy_retcode_e parse_symbol(const char *begin, const char *end, yy_symbol_t
 
 NEXT_EXCLAMATION: // !, !=
 
-    if (++ptr == end)
+    if (unlikely(++ptr == end))
         return_ok(YY_SYMBOL_NOT_OP, 1);
 
     switch (*ptr) {
@@ -1157,21 +1184,15 @@ NEXT_EXCLAMATION: // !, !=
 
 NEXT_DOUBLE_QUOTE:
 
-    if ((rc = parse_quoted_string(ptr, end, symbol)) != YY_OK)
-        return_error(rc);
-
-    return YY_OK;
+    return parse_quoted_string(ptr, end, symbol);
 
 NEXT_DOLLAR:
 
-    if ((rc = parse_variable(ptr, end, symbol)) != YY_OK)
-        return_error(rc);
-
-    return YY_OK;
+    return parse_variable(ptr, end, symbol);
 
 NEXT_AMPERSAND: // &&
 
-    if (++ptr == end)
+    if (unlikely(++ptr == end))
         return_error(YY_ERROR_SYNTAX);
 
     switch (*ptr) {
@@ -1181,14 +1202,11 @@ NEXT_AMPERSAND: // &&
 
 NEXT_DIGIT:
 
-    if ((rc = parse_number(ptr, end, symbol)) != YY_OK)
-        return_error(rc);
-
-    return YY_OK;
+    return parse_number(ptr, end, symbol);
 
 NEXT_LESS: // <, <=
 
-    if (++ptr == end)
+    if (unlikely(++ptr == end))
         return_ok(YY_SYMBOL_LESS_OP, 1);
 
     switch (*ptr) {
@@ -1198,7 +1216,7 @@ NEXT_LESS: // <, <=
 
 NEXT_EQUALS: // ==
 
-    if (++ptr == end)
+    if (unlikely(++ptr == end))
         return_error(YY_ERROR_SYNTAX);
 
     switch (*ptr) {
@@ -1208,7 +1226,7 @@ NEXT_EQUALS: // ==
 
 NEXT_GREAT: // >, >=
 
-    if (++ptr == end)
+    if (unlikely(++ptr == end))
         return_ok(YY_SYMBOL_GREAT_OP, 1);
 
     switch (*ptr) {
@@ -1220,7 +1238,7 @@ NEXT_IDENTIFIER:
 
     ++len;
 
-    if (++ptr == end)
+    if (unlikely(++ptr == end))
         goto NEXT_IDENTIFIER_END;
 
     switch (*ptr) {
@@ -1233,23 +1251,14 @@ NEXT_IDENTIFIER:
 
 NEXT_IDENTIFIER_END:
 
-    for (size_t i = 0; i < NUM_IDENTIFIERS; i++)
-    {
-        if (identifiers[i].str[0] < *begin)
-            continue;
-
-        if (*begin < identifiers[i].str[0])
-            break;
-
-        if (strncmp(begin, identifiers[i].str, len) == 0)
-            return_ok(identifiers[i].type, len);
-    }
+    if ((identifier = get_identifier(begin, len)) != NULL)
+        return_ok(identifier->type, len);
 
     return_error(YY_ERROR_SYNTAX);
 
 NEXT_VERTICAL_BAR: // ||
 
-    if (++ptr == end)
+    if (unlikely(++ptr == end))
         return_error(YY_ERROR_SYNTAX);
 
     switch (*ptr) {
@@ -1266,16 +1275,18 @@ NEXT_VERTICAL_BAR: // ||
  * 
  * @return Pointer to first non-space char or the end of the string.
  */
+INLINE
 const char * skip_spaces(const char *begin, const char *end)
 {
     assert(begin && end && begin <= end);
 
 SKIP_SPACES_START:
 
-    if (begin == end)
+    if (unlikely(begin == end))
         return begin;
 
-    switch (*begin) {
+    switch (*begin)
+    {
         case '\t': // tab
         case '\n': // new line
         case '\f': // form feed
@@ -1283,8 +1294,8 @@ SKIP_SPACES_START:
         case '\r': // carriage return
         case ' ':  // space
         case (char) 160:  // non-breaking space
-                   ++begin;
-                   goto SKIP_SPACES_START;
+            ++begin;
+            goto SKIP_SPACES_START;
         default: break;
     }
 
@@ -1311,9 +1322,9 @@ static bool is_numeric_operator(yy_symbol_e type)
 }
 
 INLINE
-static bool is_token_value(const yy_token_t *token)
+static bool is_token_value(yy_token_e type)
 {
-    switch (token->type)
+    switch (type)
     {
         case YY_TOKEN_BOOL:
         case YY_TOKEN_NUMBER:
@@ -1327,9 +1338,9 @@ static bool is_token_value(const yy_token_t *token)
 }
 
 INLINE
-static bool is_token_fixed_value(const yy_token_t *token)
+static bool is_token_fixed_value(yy_token_e type)
 {
-    switch (token->type)
+    switch (type)
     {
         case YY_TOKEN_BOOL:
         case YY_TOKEN_NUMBER:
@@ -1342,17 +1353,17 @@ static bool is_token_fixed_value(const yy_token_t *token)
 }
 
 INLINE
-static bool is_token_operator(const yy_token_t *token)
+static bool is_token_operator(yy_token_t token)
 {
     // an operator is a function with precedence
-    return (token && token->type == YY_TOKEN_FUNCTION && token->function.precedence > 0);
+    return (token.type == YY_TOKEN_FUNCTION && token.function.precedence > 0);
 }
 
 INLINE
-static bool is_token_regfunc(const yy_token_t *token)
+static bool is_token_regfunc(yy_token_t token)
 {
     // a regular function is a function without precedence
-    return (token && token->type == YY_TOKEN_FUNCTION && token->function.precedence == 0);
+    return (token.type == YY_TOKEN_FUNCTION && token.function.precedence == 0);
 }
 
 INLINE
@@ -1400,54 +1411,72 @@ static void pop(yy_stack_t *stack)
     stack->len--;
 }
 
+/**
+ * Try to simplify tokens on the top of the RPN stack.
+ * 
+ * Supported simplifications:
+ *   - Remove plus operator (ex: +1 -> 1)
+ *   - Eval top function if it has fixed values (ex: 1+1 -> 2)
+ * 
+ * Unsupported simplifications:
+ *   - For commutative operators, move fixed values to top (ex: 1+$a+3 -> $a+1+3 -> $a+4)
+ * 
+ * @param stack Stack to simplify.
+ * 
+ * @return true = simplified, false = not simplified.
+ */
 INLINE
-static bool try_to_eval_function(yy_parser_t *parser, const yy_token_t *token)
+static bool simplify_stack(yy_stack_t *stack)
 {
-    assert(parser);
-    assert(token);
+    assert(stack);
 
-    if (token->type != YY_TOKEN_FUNCTION)
+    yy_token_t *token0 = top(stack);
+
+    if (!token0 || token0->type != YY_TOKEN_FUNCTION)
         return false;
 
-    if (parser->stack->len < token->function.num_args)
+    if (stack->len < token0->function.num_args)
         return false;
 
-    if (token->function.num_args == 0)
+    if (token0->function.num_args == 0)
         return false;
 
-    if ((yy_func_1) token->function.ptr == func_ident)
+    if ((yy_func_1) token0->function.ptr == func_ident)
         return true;
 
-    yy_token_t *token1 = top(parser->stack);
+    yy_token_t *token1 = get(stack, 1);
 
-    if (!token1 || !is_token_fixed_value(token1))
+    if (!token1 || !is_token_fixed_value(token1->type))
         return false;
 
-    if (token->function.num_args == 1) {
-        *token1 = ((yy_func_1) token->function.ptr)(*token1);
-        return true;
-    }
-
-    yy_token_t *token2 = get(parser->stack, 1);
-
-    if (!token2 || !is_token_fixed_value(token2))
-        return false;
-
-    if (token->function.num_args == 2) {
-        *token2 = ((yy_func_2) token->function.ptr)(*token2, *token1);
-        pop(parser->stack);
+    if (token0->function.num_args == 1) {
+        *token1 = ((yy_func_1) token0->function.ptr)(*token1);
+        pop(stack);
         return true;
     }
 
-    yy_token_t *token3 = get(parser->stack, 2);
+    yy_token_t *token2 = get(stack, 2);
 
-    if (!token3 || !is_token_fixed_value(token3))
+    if (!token2 || !is_token_fixed_value(token2->type))
         return false;
 
-    if (token->function.num_args == 3) {
-        *token3 = ((yy_func_3) token->function.ptr)(*token3, *token2, *token1);
-        pop(parser->stack);
-        pop(parser->stack);
+    if (token0->function.num_args == 2) {
+        *token2 = ((yy_func_2) token0->function.ptr)(*token2, *token1);
+        pop(stack);
+        pop(stack);
+        return true;
+    }
+
+    yy_token_t *token3 = get(stack, 3);
+
+    if (!token3 || !is_token_fixed_value(token3->type))
+        return false;
+
+    if (token0->function.num_args == 3) {
+        *token3 = ((yy_func_3) token0->function.ptr)(*token3, *token2, *token1);
+        pop(stack);
+        pop(stack);
+        pop(stack);
         return true;
     }
 
@@ -1457,29 +1486,27 @@ static bool try_to_eval_function(yy_parser_t *parser, const yy_token_t *token)
 
 static void push_to_stack(yy_parser_t *parser, const yy_token_t *token)
 {
-    assert(token);
     assert(token->type != YY_TOKEN_NULL);
 
     yy_stack_t *stack = parser->stack;
 
-    // TODO: online eval depends on parser flag
-    if (try_to_eval_function(parser, token))
-        return;
-
-    if (stack->len >= stack->reserved) {
+    if (unlikely(stack->len >= stack->reserved)) {
         assert(stack->len == stack->reserved);
         parser->error = YY_ERROR_MEM;
         return;
     }
 
     stack->data[stack->len++] = *token;
+
+    if (token->type == YY_TOKEN_FUNCTION)
+        simplify_stack(stack);
 }
 
 static void push_to_operators(yy_parser_t *parser, const yy_token_t *token)
 {
     yy_stack_t *stack = parser->operators;
 
-    if (stack->len >= stack->reserved) {
+    if (unlikely(stack->len >= stack->reserved)) {
         assert(stack->len == stack->reserved);
         parser->error = YY_ERROR_MEM;
         return;
@@ -1489,31 +1516,34 @@ static void push_to_operators(yy_parser_t *parser, const yy_token_t *token)
 }
 
 /**
- * Process current symbol using the Shunting yard algorithm.
+ * Process current symbol using the Shunting Yard algorithm.
  * 
- * We use YY_TOKEN_NULL in operators stack as sentinel (aka ')').
+ * Recursive descent parser grants adherence to grammar, except in 
+ * the END case (ex: the invalid entry '(1' flush an END after the 
+ * subexpression '1' with an unmatched ')'.
+ * 
+ * We use YY_TOKEN_NULL in operators stack as grouping sentinel '('.
  * 
  * @see https://en.wikipedia.org/wiki/Shunting_yard_algorithm
  * 
  * @param[in] parser Parser to update.
- * @param[in] symbol Symbol to add.
  */
-static void process(yy_parser_t *parser)
+static void process_current_symbol(yy_parser_t *parser)
 {
     if (parser->error != YY_OK)
         return;
 
-    yy_token_t *op = NULL;
+    const yy_token_t *op = NULL;
     yy_token_t token = create_token(&parser->curr_symbol);
     yy_symbol_e type = parser->curr_symbol.type;
 
-    if (is_token_value(&token))
+    if (is_token_value(token.type))
     {
         push_to_stack(parser, &token);
         return;
     }
 
-    if (is_token_operator(&token))
+    if (is_token_operator(token))
     {
         while ((op = top(parser->operators)) != NULL)
         {
@@ -1534,7 +1564,7 @@ static void process(yy_parser_t *parser)
         return;
     }
 
-    if (is_token_regfunc(&token))
+    if (is_token_regfunc(token))
     {
         push_to_operators(parser, &token);
         return;
@@ -1562,7 +1592,7 @@ static void process(yy_parser_t *parser)
 
         op = top(parser->operators);
 
-        if (is_token_regfunc(op)) {
+        if (op && is_token_regfunc(*op)) {
             push_to_stack(parser, op);
             pop(parser->operators);
         }
@@ -1576,7 +1606,7 @@ static void process(yy_parser_t *parser)
         {
             if (op->type == YY_TOKEN_NULL)
                 break;
-            
+
             push_to_stack(parser, op);
             pop(parser->operators);
         }
@@ -1621,9 +1651,16 @@ static bool consume(yy_parser_t *parser)
     if (parser->curr_symbol.type != YY_SYMBOL_NONE)
     {
         // current symbol was accepted
-        process(parser);
 
+        // append current symbol to output (rpn stack)
+        process_current_symbol(parser);
+
+        if (parser->error != YY_OK)
+            return false;
+
+        // moving current position just after the accepted symbol
         parser->curr += parser->curr_symbol.lexeme.len;
+
     }
 
     assert(parser->begin <= parser->curr);
@@ -1645,7 +1682,10 @@ static bool consume(yy_parser_t *parser)
  * @param[in] parser Parser to update.
  * @param[in] type Expected symbol.
  * 
- * @return true = success, false = unexpected symbol or error reading next symbol.
+ * @return true = success, 
+ *         false = unexpected symbol or 
+ *                 error processing current symbol or 
+ *                 error reading next symbol.
  */
 static bool expect(yy_parser_t *parser, yy_symbol_e type)
 {
@@ -1671,6 +1711,7 @@ static void init_parser(yy_parser_t *parser, const char *begin, const char *end,
     assert(parser);
 
     stack->len = 0;
+    operators.len = 0;
 
     parser->begin = begin;
     parser->end = end;
@@ -1847,9 +1888,9 @@ yy_retcode_e yy_parse_expr_number(const char *begin, const char *end, yy_stack_t
 // ==================================================
 
 #undef return_error
-#define return_error(err_) return (yy_token_t){ .type = YY_TOKEN_ERROR, .error = err_ };
-#define return_number(val_) return (yy_token_t){ .type = YY_TOKEN_NUMBER, .number_val = val_ };
-#define return_datetime(val_) return (yy_token_t){ .type = YY_TOKEN_DATETIME, .datetime_val = val_ };
+#define return_error(err_) return (yy_token_t){ .error = err_, .type = YY_TOKEN_ERROR };
+#define return_number(val_) return (yy_token_t){ .number_val = val_, .type = YY_TOKEN_NUMBER };
+#define return_datetime(val_) return (yy_token_t){ .datetime_val = val_, .type = YY_TOKEN_DATETIME };
 #define UNUSED(x) (void)(x)
 
 static yy_token_t func_now(void) {
@@ -1967,18 +2008,7 @@ static yy_token_t func_tan(yy_token_t x)
     if (x.type != YY_TOKEN_NUMBER)
         return_error(YY_ERROR_VALUE);
 
-    errno = 0;
-
-    int fe_state = fetestexcept(FE_ALL_EXCEPT);
-
-    feclearexcept(FE_ALL_EXCEPT);
-
     x.number_val = tan(x.number_val);
-
-    feraiseexcept(fe_state);
-
-    if (errno != 0 || x.number_val == HUGE_VAL || x.number_val == -HUGE_VAL)
-        return_error(YY_ERROR_HUGE);
 
     return x;
 }
@@ -1988,21 +2018,7 @@ static yy_token_t func_exp(yy_token_t x)
     if (x.type != YY_TOKEN_NUMBER)
         return_error(YY_ERROR_VALUE);
 
-    if (x.number_val <= 0.0)
-        return_error(YY_ERROR_NAN);
-
-    errno = 0;
-
-    int fe_state = fetestexcept(FE_ALL_EXCEPT);
-
-    feclearexcept(FE_ALL_EXCEPT);
-
     x.number_val = exp(x.number_val);
-
-    feraiseexcept(fe_state);
-
-    if (errno != 0 && x.number_val == HUGE_VAL)
-        return_error(YY_ERROR_HUGE);
 
     return x;
 }
@@ -2011,9 +2027,6 @@ static yy_token_t func_log(yy_token_t x)
 {
     if (x.type != YY_TOKEN_NUMBER)
         return_error(YY_ERROR_VALUE);
-
-    if (x.number_val <= 0.0)
-        return_error(YY_ERROR_NAN);
 
     x.number_val = log(x.number_val);
 
@@ -2065,9 +2078,6 @@ static yy_token_t func_sqrt(yy_token_t x)
     if (x.type != YY_TOKEN_NUMBER)
         return_error(YY_ERROR_VALUE);
 
-    if (x.number_val < 0.0)
-        return_error(YY_ERROR_NAN);
-
     x.number_val = sqrt(x.number_val);
 
     return x;
@@ -2081,32 +2091,7 @@ static yy_token_t func_pow(yy_token_t x, yy_token_t y)
     if (y.type != YY_TOKEN_NUMBER)
         return_error(YY_ERROR_VALUE);
 
-    int fe_state = fetestexcept(FE_ALL_EXCEPT);
-
-    errno = 0;
-
-    feclearexcept(FE_ALL_EXCEPT);
-
     double val = pow(x.number_val, y.number_val);
-
-    feraiseexcept(fe_state);
-
-    if (errno == ERANGE)
-    {
-        if (val == HUGE_VAL)
-            return_error(YY_ERROR_HUGE);
-
-        if (val == +0.0 || val == -0.0)
-            return_number(0.0);
-
-        return_error(YY_ERROR_NAN);
-    }
-
-    if (errno == EDOM)
-        return_error(YY_ERROR_NAN);
-
-    if (val == HUGE_VAL || val == -HUGE_VAL)
-        return_error(YY_ERROR_HUGE);
 
     return_number(val);
 }
@@ -2150,9 +2135,6 @@ static yy_token_t func_div(yy_token_t x, yy_token_t y)
     if (y.type != YY_TOKEN_NUMBER)
         return_error(YY_ERROR_VALUE);
 
-    if (fabs(y.number_val) < EPSILON)
-        return_error(YY_ERROR_DIV_0);
-
     double val = x.number_val / y.number_val;
 
     return_number(val);
@@ -2165,9 +2147,6 @@ static yy_token_t func_mod(yy_token_t x, yy_token_t y)
 
     if (y.type != YY_TOKEN_NUMBER)
         return_error(YY_ERROR_VALUE);
-
-    if (fabs(y.number_val) < EPSILON)
-        return_error(YY_ERROR_DIV_0);
 
     double val = fmod(x.number_val, y.number_val);
 

@@ -54,8 +54,12 @@ dkms.conf
 # added by gtg
 tmp
 coverage
+profiler
+performance
 *.gcda
 *.gcno
+*.gmon
 tests
 tests-coverage
 notes.txt
+perf.data

@@ -1,6 +1,8 @@
 #include "acutest.h"
 #include "expr.c"
 
+#define EPSILON 1e-13
+
 yy_symbol_e get_function_symbol(void (*func)(void))
 {
     for (size_t i = 0; i < (size_t) YY_SYMBOL_END; i++)
@@ -478,6 +480,7 @@ void test_number_ko(void)
     check_number_ko(".5"     , YY_ERROR_INVALID_NUMBER);
     check_number_ko("1."     , YY_ERROR_INVALID_NUMBER);
     check_number_ko("1.a"    , YY_ERROR_INVALID_NUMBER);
+    check_number_ko("1.e1"   , YY_ERROR_INVALID_NUMBER);
     check_number_ko("1.2e"   , YY_ERROR_INVALID_NUMBER);
     check_number_ko("1.2ea"  , YY_ERROR_INVALID_NUMBER);
     check_number_ko("1.2e+"  , YY_ERROR_INVALID_NUMBER);
@@ -864,6 +867,8 @@ void test_grammar_number(void)
     check_grammar_number_ok("abs(-PI)");
     check_grammar_number_ok("2 * (-1)");
     check_grammar_number_ok("min(2+3*4, 1+3*5)");
+    check_grammar_number_ok("sqrt(exp(((0 * (-4332.4091)) / (10865972.2922 - 275715300.8411))))");
+    check_grammar_number_ok("log((-2729166) / (-0.0205) * exp(0))");
 
     check_grammar_number_ko(" ");
     check_grammar_number_ko("not_a_var");
@@ -875,6 +880,8 @@ void test_grammar_number(void)
     check_grammar_number_ko("1+()");
     check_grammar_number_ko("1*/3");
     check_grammar_number_ko("2^^3");
+    check_grammar_number_ko("coa(pi)");
+    check_grammar_number_ko("cosh(pi)");
     check_grammar_number_ko("min");
     check_grammar_number_ko("min(");
     check_grammar_number_ko("min(,");
@@ -888,7 +895,18 @@ void test_grammar_number(void)
     check_grammar_number_ko("2 * -1"); // two consecutive operators
 }
 
+void test_sizeof(void)
+{
+    TEST_CHECK(sizeof(uint64_t) == 8);
+    TEST_CHECK(sizeof(yy_str_t) == 12);
+    TEST_CHECK(sizeof(yy_func_t) == 11);
+    TEST_CHECK(sizeof(yy_token_e) <= 4);
+    TEST_CHECK(sizeof(yy_token_t) == 16);
+    TEST_CHECK(sizeof(yy_symbol_t) == 32);
+}
+
 TEST_LIST = {
+    { "sizeof",                       test_sizeof },
     { "number_ok",                    test_number_ok },
     { "number_ko",                    test_number_ko },
     { "datetime_ok",                  test_datetime_ok },
