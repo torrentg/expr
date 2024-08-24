@@ -313,10 +313,10 @@ void check_grammar_number_ok(const char *str)
     yy_token_t data[64] = {0};
     yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
-    yy_retcode_e rc = yy_parse_expr_number(str, str + strlen(str), &stack, NULL);
+    yy_retcode_e rc = yy_compile_number(str, str + strlen(str), &stack, NULL);
 
     TEST_CHECK(rc == YY_OK);
-    TEST_MSG("Case='%s', error=failed", str);
+    TEST_MSG("Case='%s', error=unexpected-rc, rc=%d", str, rc);
 
     printf("%s --> ", str);
     print_stack(&stack);
@@ -328,7 +328,7 @@ void check_grammar_number_ko(const char *str)
     yy_token_t data[64] = {0};
     yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
-    yy_retcode_e rc = yy_parse_expr_number(str, str + strlen(str), &stack, NULL);
+    yy_retcode_e rc = yy_compile_number(str, str + strlen(str), &stack, NULL);
 
     TEST_CHECK(rc != YY_OK);
     TEST_MSG("Case='%s', error=failed", str);

@@ -144,40 +144,41 @@ yy_retcode_e yy_parse_bool(const char *begin, const char *end, yy_token_t *token
 yy_retcode_e yy_parse(const char *begin, const char *end, yy_token_t *token);
 
 /**
- * Parse an expression.
+ * Compile an expression.
  * 
  * Parse full content (^.*$).
  * 
- * In the generic case, yy_parse_expr, we try to parse it in the following order:
+ * In the generic case, yy_compile(), we try to parse it in the following order:
  *   number, datetime, string, bool
  * 
- * Caution, variables and strings located on stack points to str input.
- * Recode these values before str dealloc.
+ * Caution, variables and strings on the stack point to str input.
+ * Recode these values before deallocating str.
  * 
  * @param[in] begin String to parse (initial spaces are allowed).
  * @param[in] end One char after the string end.
  * @param[out] stack Reverse polish notation (rpn) stack.
  * @param[out] err Error location (can be NULL).
  * 
- * @return YY_OK on success, otherwise error.
+ * @return YY_OK on success, 
+ *         otherwise error (in this case, if err is not NULL, err points to the error location).
  */
-yy_retcode_e yy_parse_expr_number(const char *begin, const char *end, yy_stack_t *stack, const char **err);
-yy_retcode_e yy_parse_expr_datetime(const char *begin, const char *end, yy_stack_t *stack, const char **err);
-yy_retcode_e yy_parse_expr_string(const char *begin, const char *end, yy_stack_t *stack, const char **err);
-yy_retcode_e yy_parse_expr_bool(const char *begin, const char *end, yy_stack_t *stack, const char **err);
-yy_retcode_e yy_parse_expr(const char *begin, const char *end, yy_stack_t *stack, const char **err);
+yy_retcode_e yy_compile_number(const char *begin, const char *end, yy_stack_t *stack, const char **err);
+yy_retcode_e yy_compile_datetime(const char *begin, const char *end, yy_stack_t *stack, const char **err);
+yy_retcode_e yy_compile_string(const char *begin, const char *end, yy_stack_t *stack, const char **err);
+yy_retcode_e yy_compile_bool(const char *begin, const char *end, yy_stack_t *stack, const char **err);
+yy_retcode_e yy_compile(const char *begin, const char *end, yy_stack_t *stack, const char **err);
 
 /**
  * Evaluate a rpn stack.
  * 
  * @param[in] stack Reverse polish notation (rpn) stack.
- * @param[in] values Auxiliary stack (recomended length = stack length -1).
- * @param[in] resolve Function used to resolve variables.
- * @param[in] data Data passed to resolve function (can be NULL).
+ * @param[in] aux Auxiliary stack (used to evaluate the rpn stack and store intermediate string values).
+ * @param[in] resolve Function used to resolve variables (can be NULL if there are no variables).
+ * @param[in] data Data passed to the 'resolve' function (can be NULL).
  * 
  * @return Result as token, can be an error (see yy_token_t.type).
  */
-yy_token_t yy_eval(const yy_stack_t *stack, yy_stack_t *values, yy_token_t (*resolve)(yy_str_t var, void *data), void *data);
+yy_token_t yy_eval(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
 
 /**
  * Returns the textual description of the error code.

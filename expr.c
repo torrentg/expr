@@ -142,7 +142,7 @@ typedef struct yy_parser_t
     const char *end;                //!< One char after the end of the expression to parse.
     const char *curr;               //!< Current position being parsed.
     yy_stack_t *stack;              //!< Resulting RPN stack.
-    yy_stack_t *operators;          //!< Operators stack.
+    uint32_t operators_len;         //!< Length of the operators stack.
     yy_symbol_t curr_symbol;        //!< Current symbol.
     yy_symbol_t prev_symbol;        //!< Previous symbol.
     yy_retcode_e error;             //!< Error code (YY_OK means no error), curr points to error location.
@@ -1387,12 +1387,39 @@ static yy_token_t create_token(const yy_symbol_t *symbol)
 }
 
 INLINE
-static yy_token_t * top(yy_stack_t *stack)
+static yy_token_t * top_stack(yy_parser_t *parser)
 {
+    yy_stack_t *stack = parser->stack;
+
     if (stack->len == 0)
         return NULL;
 
     return (&stack->data[stack->len - 1]);
+}
+
+INLINE
+static yy_token_t * top_operators(yy_parser_t *parser)
+{
+    if (parser->operators_len == 0)
+        return NULL;
+
+    yy_stack_t *stack = parser->stack;
+    return (&stack->data[stack->reserved - parser->operators_len]);
+}
+
+INLINE
+static void pop_stack(yy_parser_t *parser)
+{
+    yy_stack_t *stack = parser->stack;
+    assert(stack->len != 0);
+    stack->len--;
+}
+
+INLINE
+static void pop_operators(yy_parser_t *parser)
+{
+    assert(parser->operators_len != 0);
+    parser->operators_len--;
 }
 
 INLINE
@@ -1402,13 +1429,6 @@ static yy_token_t * get(yy_stack_t *stack, uint32_t idx)
         return NULL;
 
     return (&stack->data[stack->len - 1 - idx]);
-}
-
-INLINE
-static void pop(yy_stack_t *stack)
-{
-    assert(stack->len != 0);
-    stack->len--;
 }
 
 /**
@@ -1426,11 +1446,10 @@ static void pop(yy_stack_t *stack)
  * @return true = simplified, false = not simplified.
  */
 INLINE
-static bool simplify_stack(yy_stack_t *stack)
+static bool simplify_stack(yy_parser_t *parser)
 {
-    assert(stack);
-
-    yy_token_t *token0 = top(stack);
+    yy_stack_t *stack = parser->stack;
+    yy_token_t *token0 = top_stack(parser);
 
     if (!token0 || token0->type != YY_TOKEN_FUNCTION)
         return false;
@@ -1451,7 +1470,7 @@ static bool simplify_stack(yy_stack_t *stack)
 
     if (token0->function.num_args == 1) {
         *token1 = ((yy_func_1) token0->function.ptr)(*token1);
-        pop(stack);
+        pop_stack(parser);
         return true;
     }
 
@@ -1462,8 +1481,8 @@ static bool simplify_stack(yy_stack_t *stack)
 
     if (token0->function.num_args == 2) {
         *token2 = ((yy_func_2) token0->function.ptr)(*token2, *token1);
-        pop(stack);
-        pop(stack);
+        pop_stack(parser);
+        pop_stack(parser);
         return true;
     }
 
@@ -1474,9 +1493,9 @@ static bool simplify_stack(yy_stack_t *stack)
 
     if (token0->function.num_args == 3) {
         *token3 = ((yy_func_3) token0->function.ptr)(*token3, *token2, *token1);
-        pop(stack);
-        pop(stack);
-        pop(stack);
+        pop_stack(parser);
+        pop_stack(parser);
+        pop_stack(parser);
         return true;
     }
 
@@ -1490,8 +1509,8 @@ static void push_to_stack(yy_parser_t *parser, const yy_token_t *token)
 
     yy_stack_t *stack = parser->stack;
 
-    if (unlikely(stack->len >= stack->reserved)) {
-        assert(stack->len == stack->reserved);
+    if (unlikely(stack->len + parser->operators_len >= stack->reserved)) {
+        assert(stack->len + parser->operators_len == stack->reserved);
         parser->error = YY_ERROR_MEM;
         return;
     }
@@ -1499,20 +1518,20 @@ static void push_to_stack(yy_parser_t *parser, const yy_token_t *token)
     stack->data[stack->len++] = *token;
 
     if (token->type == YY_TOKEN_FUNCTION)
-        simplify_stack(stack);
+        simplify_stack(parser);
 }
 
 static void push_to_operators(yy_parser_t *parser, const yy_token_t *token)
 {
-    yy_stack_t *stack = parser->operators;
+    yy_stack_t *stack = parser->stack;
 
-    if (unlikely(stack->len >= stack->reserved)) {
-        assert(stack->len == stack->reserved);
+    if (unlikely(stack->len + parser->operators_len >= stack->reserved)) {
+        assert(stack->len + parser->operators_len == stack->reserved);
         parser->error = YY_ERROR_MEM;
         return;
     }
 
-    stack->data[stack->len++] = *token;
+    stack->data[stack->reserved - (++parser->operators_len)] = *token;
 }
 
 /**
@@ -1545,7 +1564,7 @@ static void process_current_symbol(yy_parser_t *parser)
 
     if (is_token_operator(token))
     {
-        while ((op = top(parser->operators)) != NULL)
+        while ((op = top_operators(parser)) != NULL)
         {
             if (op->type == YY_TOKEN_NULL)
                 break;
@@ -1557,7 +1576,7 @@ static void process_current_symbol(yy_parser_t *parser)
                 break;
 
             push_to_stack(parser, op);
-            pop(parser->operators);
+            pop_operators(parser);
         }
 
         push_to_operators(parser, &token);
@@ -1578,23 +1597,23 @@ static void process_current_symbol(yy_parser_t *parser)
 
     if (type == YY_SYMBOL_PAREN_RIGHT)
     {
-        while ((op = top(parser->operators)) != NULL)
+        while ((op = top_operators(parser)) != NULL)
         {
             if (op->type == YY_TOKEN_NULL)
                 break;
             
             push_to_stack(parser, op);
-            pop(parser->operators);
+            pop_operators(parser);
         }
 
         assert(op != NULL && op->type == YY_TOKEN_NULL);
-        pop(parser->operators);
+        pop_operators(parser);
 
-        op = top(parser->operators);
+        op = top_operators(parser);
 
         if (op && is_token_regfunc(*op)) {
             push_to_stack(parser, op);
-            pop(parser->operators);
+            pop_operators(parser);
         }
 
         return;
@@ -1602,13 +1621,13 @@ static void process_current_symbol(yy_parser_t *parser)
 
     if (type == YY_SYMBOL_COMMA)
     {
-        while ((op = top(parser->operators)) != NULL)
+        while ((op = top_operators(parser)) != NULL)
         {
             if (op->type == YY_TOKEN_NULL)
                 break;
 
             push_to_stack(parser, op);
-            pop(parser->operators);
+            pop_operators(parser);
         }
 
         return;
@@ -1616,7 +1635,7 @@ static void process_current_symbol(yy_parser_t *parser)
 
     if (type == YY_SYMBOL_END)
     {
-        while ((op = top(parser->operators)) != NULL)
+        while ((op = top_operators(parser)) != NULL)
         {
             if (op->type == YY_TOKEN_NULL) {
                 // unmatched parentesis
@@ -1625,7 +1644,7 @@ static void process_current_symbol(yy_parser_t *parser)
             }
 
             push_to_stack(parser, op);
-            pop(parser->operators);
+            pop_operators(parser);
         }
 
         return;
@@ -1704,20 +1723,15 @@ static bool expect(yy_parser_t *parser, yy_symbol_e type)
 
 static void init_parser(yy_parser_t *parser, const char *begin, const char *end, yy_stack_t *stack)
 {
-    // TODO: remove this temporary static shit
-    static yy_token_t data[64] = {0};
-    static yy_stack_t operators = {data, sizeof(data)/sizeof(data[0]), 0};
-
     assert(parser);
 
     stack->len = 0;
-    operators.len = 0;
 
     parser->begin = begin;
     parser->end = end;
     parser->curr = begin;
     parser->stack = stack;
-    parser->operators = &operators;
+    parser->operators_len = 0;
     parser->curr_symbol = (yy_symbol_t){0};
     parser->prev_symbol = (yy_symbol_t){0};
     parser->error = (stack && stack->reserved ? YY_OK : YY_ERROR_MEM);
@@ -1866,7 +1880,7 @@ NUMBER_EXPR_END:
  * 
  *    We reject 2 consecutive operators (ex: 1 + -1).
  */
-yy_retcode_e yy_parse_expr_number(const char *begin, const char *end, yy_stack_t *stack, const char **err)
+yy_retcode_e yy_compile_number(const char *begin, const char *end, yy_stack_t *stack, const char **err)
 {
     if (!begin || !end || begin > end || !stack || !stack->data)
         return YY_ERROR_ARGS;
