@@ -4,5 +4,6 @@
     "chrono": "c",
     "stdio.h": "c",
     "charconv": "c"
-  }
+  },
+  "makefile.configureOnOpen": false
 }

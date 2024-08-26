@@ -127,21 +127,30 @@ typedef struct yy_stack_t {
 /**
  * Parse a single value.
  * 
- * Parse full content (^.*$).
+ * Use these functions to parse variable content, not expressions.
+ * They are used to validate that string data adheres to the expected syntax. 
+ * If you just want to create a token, don't use these functions, instead 
+ * assign the type and value directly.
+ *
+ * Caution, strings and datetimes surrounded by double-quote are reported as error.
  * 
- * Use these functions to parse variable content, not formulas.
+ * Features:
+ *   - number: parse JSON-format numbers (RFC-7159).
+ *   - datetime: parse ISO-8601 datetimes (ex. 2024-08-24T09:05:58.123Z, 2024-08-24, etc.).
+ *   - string: parse non-quoted escaped strings (\n \t \" \\).
+ *   - bool: accepted values: true, True, TRUE, false, False, FALSE
  * 
  * @param[in] begin String to parse (without initial spaces).
  * @param[in] end One char after the string end.
- * @param[out] token Parsed value.
  * 
- * @return YY_OK on success, otherwise error.
+ * @return Parsed value,
+ *         On error, token.type == YY_TOKEN_ERROR.
  */
-yy_retcode_e yy_parse_number(const char *begin, const char *end, yy_token_t *token);
-yy_retcode_e yy_parse_datetime(const char *begin, const char *end, yy_token_t *token);
-yy_retcode_e yy_parse_string(const char *begin, const char *end, yy_token_t *token);
-yy_retcode_e yy_parse_bool(const char *begin, const char *end, yy_token_t *token);
-yy_retcode_e yy_parse(const char *begin, const char *end, yy_token_t *token);
+yy_token_t yy_parse_number(const char *begin, const char *end);
+yy_token_t yy_parse_datetime(const char *begin, const char *end);
+yy_token_t yy_parse_string(const char *begin, const char *end);
+yy_token_t yy_parse_bool(const char *begin, const char *end);
+yy_token_t yy_parse(const char *begin, const char *end);
 
 /**
  * Compile an expression.

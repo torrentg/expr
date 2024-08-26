@@ -1,7 +1,7 @@
 #include "acutest.h"
 #include "expr.c"
 
-#define EPSILON 1e-13
+#define EPSILON 1e-14
 
 yy_symbol_e get_function_symbol(void (*func)(void))
 {
@@ -67,6 +67,7 @@ const char * symbol_to_str(yy_symbol_e type)
         case YY_SYMBOL_NOW: return "NOW";
         case YY_SYMBOL_DATEPART: return "DATEPART";
         case YY_SYMBOL_DATEADD: return "DATEADD";
+        case YY_SYMBOL_DATETRUNC: return "DATETRUNC";
         case YY_SYMBOL_LENGTH: return "LENGTH";
         case YY_SYMBOL_LOWER: return "LOWER";
         case YY_SYMBOL_UPPER: return "UPPER";
@@ -129,7 +130,7 @@ void check_number_ko(const char *str, yy_retcode_e expected_result)
     yy_symbol_t symbol = {0};
     size_t len = strlen(str);
 
-    yy_retcode_e rc = parse_number(str, str + len, &symbol);
+    yy_retcode_e rc = read_symbol_number(str, str + len, &symbol);
 
     TEST_CHECK(rc == expected_result);
     TEST_MSG("Case='%s', expected=%d, result=%d", str, expected_result, rc);
@@ -139,7 +140,7 @@ void _check_number_ok(const char *str, size_t len, double expected_val, size_t e
 {
     yy_symbol_t symbol = {0};
 
-    yy_retcode_e rc = parse_number(str, str + len, &symbol);
+    yy_retcode_e rc = read_symbol_number(str, str + len, &symbol);
 
     TEST_CHECK(rc == YY_OK);
     TEST_MSG("Case='%.*s', error=failed", (int) len, str);
@@ -153,33 +154,26 @@ void _check_number_ok(const char *str, size_t len, double expected_val, size_t e
     TEST_MSG("Case='%.*s', error=invalid-lexeme-len", (int) len, str);
 }
 
-void _check_datetime_ok(const char *str, size_t len, uint64_t expected_val, size_t expected_len)
+void check_datetime_ok(const char *str, uint64_t expected_val)
 {
-    yy_symbol_t symbol = {0};
-
-    yy_retcode_e rc = parse_datetime(str, str + len, &symbol);
-
-    TEST_CHECK(rc == YY_OK);
-    TEST_MSG("Case='%.*s', error=failed", (int) len, str);
-    TEST_CHECK(symbol.type == YY_SYMBOL_DATETIME_VAL);
-    TEST_MSG("Case='%.*s', error=not-a-datetime", (int) len, str);
-    TEST_CHECK(symbol.datetime_val == expected_val);
-    TEST_MSG("Case='%.*s', expected=%lu, result=%lu", (int) len, str, expected_val, symbol.datetime_val);
-    TEST_CHECK(symbol.lexeme.ptr == str);
-    TEST_MSG("Case='%.*s', error=invalid-lexeme-ptr", (int) len, str);
-    TEST_CHECK(symbol.lexeme.len == expected_len);
-    TEST_MSG("Case='%.*s', error=invalid-lexeme-len", (int) len, str);
-}
-
-void check_datetime_ko(const char *str, yy_retcode_e expected_result)
-{
-    yy_symbol_t symbol = {0};
     size_t len = strlen(str);
 
-    yy_retcode_e rc = parse_datetime(str, str + len, &symbol);
+    yy_token_t token = yy_parse_datetime(str, str + len);
 
-    TEST_CHECK(rc == expected_result);
-    TEST_MSG("Case='%s', expected=%d, result=%d", str, expected_result, rc);
+    TEST_CHECK(token.type == YY_TOKEN_DATETIME);
+    TEST_MSG("Case='%.*s', error=failed", (int) len, str);
+    TEST_CHECK(token.datetime_val == expected_val);
+    TEST_MSG("Case='%.*s', expected=%lu, result=%lu", (int) len, str, expected_val, token.datetime_val);
+}
+
+void check_datetime_ko(const char *str)
+{
+    size_t len = strlen(str);
+
+    yy_token_t token = yy_parse_datetime(str, str + len);
+
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+    TEST_MSG("Case='%s', error=not-fails", str);
 }
 
 void _check_string_ok(const char *str, size_t len, const char *expected_val)
@@ -187,7 +181,7 @@ void _check_string_ok(const char *str, size_t len, const char *expected_val)
     yy_symbol_t symbol = {0};
     size_t expected_len = strlen(expected_val);
 
-    yy_retcode_e rc = parse_quoted_string(str, str + len, &symbol);
+    yy_retcode_e rc = read_symbol_string(str, str + len, &symbol);
 
     TEST_CHECK(rc == YY_OK);
     TEST_MSG("Case='%.*s', error=failed", (int) len, str);
@@ -209,37 +203,32 @@ void check_string_ko(const char *str, yy_retcode_e expected_result)
     size_t len = (str == NULL ? 0 : strlen(str));
     const char *end = (str == NULL ? NULL : str + len);
 
-    yy_retcode_e rc = parse_quoted_string(str, end, &symbol);
+    yy_retcode_e rc = read_symbol_string(str, end, &symbol);
 
     TEST_CHECK(rc == expected_result);
     TEST_MSG("Case='%s', expected=%d, result=%d", str, expected_result, rc);
 }
 
-void _check_boolean_ok(const char *str, size_t len, bool expected_val)
+void check_boolean_ok(const char *str, bool expected_val)
 {
-    yy_symbol_t symbol = {0};
+    size_t len = strlen(str);
 
-    yy_retcode_e rc = parse_boolean(str, str + len, &symbol);
+    yy_token_t token = yy_parse_bool(str, str + len);
 
-    TEST_CHECK(rc == YY_OK);
-    TEST_MSG("Case='%.*s', error=failed", (int) len, str);
-    TEST_CHECK(symbol.type == YY_SYMBOL_TRUE || symbol.type == YY_SYMBOL_FALSE);
-    TEST_MSG("Case='%.*s', error=not-a-boolean", (int) len, str);
-    TEST_CHECK((expected_val && symbol.type == YY_SYMBOL_TRUE) || (!expected_val && symbol.type == YY_SYMBOL_FALSE));
-    TEST_MSG("Case='%.*s', error=unexpected-value", (int) len, str);
-    TEST_CHECK(symbol.lexeme.len == (expected_val ? 4 : 5));
-    TEST_MSG("Case='%.*s', error=invalid-lexeme-len", (int) len, str);
+    TEST_CHECK(token.type == YY_TOKEN_BOOL);
+    TEST_MSG("Case='%s', error=not-a-boolean", str);
+    TEST_CHECK(expected_val == token.bool_val);
+    TEST_MSG("Case='%s', error=unexpected-value", str);
 }
 
-void check_boolean_ko(const char *str, yy_retcode_e expected_result)
+void check_boolean_ko(const char *str)
 {
-    yy_symbol_t symbol = {0};
-    const char *end = str + (str ? strlen(str) : 0);
+    size_t len = strlen(str);
 
-    yy_retcode_e rc = parse_boolean(str, end, &symbol);
+    yy_token_t token = yy_parse_bool(str, str + len);
 
-    TEST_CHECK(rc == expected_result);
-    TEST_MSG("Case='%s', expected=%d, result=%d", str, expected_result, rc);
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+    TEST_MSG("Case='%s', error=not-failed", str);
 }
 
 void _check_variable_ok(const char *str, size_t len, const char *expected_val)
@@ -247,7 +236,7 @@ void _check_variable_ok(const char *str, size_t len, const char *expected_val)
     yy_symbol_t symbol = {0};
     size_t expected_len = strlen(expected_val);
 
-    yy_retcode_e rc = parse_variable(str, str + len, &symbol);
+    yy_retcode_e rc = read_symbol_variable(str, str + len, &symbol);
 
     TEST_CHECK(rc == YY_OK);
     TEST_MSG("Case='%.*s', error=failed", (int) len, str);
@@ -266,7 +255,7 @@ void check_variable_ko(const char *str, yy_retcode_e expected_result)
     yy_symbol_t symbol = {0};
     const char *end = str + (str ? strlen(str) : 0);
 
-    yy_retcode_e rc = parse_variable(str, end, &symbol);
+    yy_retcode_e rc = read_symbol_variable(str, end, &symbol);
 
     TEST_CHECK(rc == expected_result);
     TEST_MSG("Case='%s', expected=%d, result=%d", str, expected_result, rc);
@@ -277,7 +266,7 @@ void check_next_ok(const char *str, yy_symbol_e type, yy_symbol_t *symbol)
     const char *begin = str;
     const char *end = str + strlen(str);
 
-    yy_retcode_e rc = parse_symbol(begin, end, symbol);
+    yy_retcode_e rc = read_symbol(begin, end, symbol);
 
     TEST_CHECK(rc == YY_OK);
     TEST_MSG("Case='%s', error=failed", str);
@@ -291,7 +280,7 @@ void check_next_ko(const char *str)
     const char *end = str + strlen(str);
     yy_symbol_t symbol = {0};
 
-    yy_retcode_e rc = parse_symbol(begin, end, &symbol);
+    yy_retcode_e rc = read_symbol(begin, end, &symbol);
 
     TEST_CHECK(rc != YY_OK);
     TEST_MSG("Case='%s', error=failed", str);
@@ -355,21 +344,6 @@ void check_number_ok(const char *str, double expected_val)
     _check_number_ok(buf, len + 1, expected_val, len);
 }
 
-void check_datetime_ok(const char *str, double expected_val)
-{
-    char buf[1024] = {0};
-    size_t len = strlen(str);
-
-    strcpy(buf, str);
-
-    // isolate
-    _check_datetime_ok(buf, len, expected_val, len);
-
-    // same range, ending by '9'
-    buf[len] = '9';
-    _check_datetime_ok(buf, len, expected_val, len);
-}
-
 void check_string_ok(const char *str, const char *expected_val)
 {
     char buf[1024] = {0};
@@ -387,21 +361,6 @@ void check_string_ok(const char *str, const char *expected_val)
     // range + 1, ending by '+'
     buf[len] = '+';
     _check_string_ok(buf, len + 1, expected_val);
-}
-
-void check_boolean_ok(const char *str, bool expected_val)
-{
-    char buf[1024] = {0};
-    size_t len = strlen(str);
-
-    strcpy(buf, str);
-
-    // isolate
-    _check_boolean_ok(buf, len, expected_val);
-
-    // same range, ending by '9'
-    buf[len] = '9';
-    _check_boolean_ok(buf, len, expected_val);
 }
 
 void check_variable_ok(const char *str, const char *expected_val)
@@ -509,107 +468,107 @@ void test_datetime_ok(void)
 
 void test_datetime_ko(void)
 {
-    check_datetime_ko("", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko(" ", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("a", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("T", YY_ERROR_INVALID_DATETIME);
+    check_datetime_ko("");
+    check_datetime_ko(" ");
+    check_datetime_ko("a");
+    check_datetime_ko("T");
 
     // range error
-    check_datetime_ko(" 1970-01-01T00:00:00.000Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("1970-01-01T00:00:00.000Z ", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko(" 1970-01-01", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("1970-01-01 ", YY_ERROR_INVALID_DATETIME);
+    check_datetime_ko(" 1970-01-01T00:00:00.000Z");
+    check_datetime_ko("1970-01-01T00:00:00.000Z ");
+    check_datetime_ko(" 1970-01-01");
+    check_datetime_ko("1970-01-01 ");
 
     // additional symbol after end
-    check_datetime_ko("2024-07-28T09:27:43.678Z+", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27:43.678+", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27:43+", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28+", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T13:54", YY_ERROR_INVALID_DATETIME);
+    check_datetime_ko("2024-07-28T09:27:43.678Z+");
+    check_datetime_ko("2024-07-28T09:27:43.678+");
+    check_datetime_ko("2024-07-28T09:27:43+");
+    check_datetime_ko("2024-07-28+");
+    check_datetime_ko("2024-07-28T");
+    check_datetime_ko("2024-07-28T13:54");
 
     // invalid year
-    check_datetime_ko("197a-01-01T00:00:00.000Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("1824-07-28T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("1924-07-28T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("924-07-28T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("24-07-28T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("4-07-28T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("-07-28T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
+    check_datetime_ko("197a-01-01T00:00:00.000Z");
+    check_datetime_ko("1824-07-28T09:27:43.678Z");
+    check_datetime_ko("1924-07-28T09:27:43.678Z");
+    check_datetime_ko("924-07-28T09:27:43.678Z");
+    check_datetime_ko("24-07-28T09:27:43.678Z");
+    check_datetime_ko("4-07-28T09:27:43.678Z");
+    check_datetime_ko("-07-28T09:27:43.678Z");
 
     // invalid month
-    check_datetime_ko("2024--28T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-a-28T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-1a-28T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-1-28T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-0-28T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("202428T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-00-28T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-13-28T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-20-28T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
+    check_datetime_ko("2024--28T09:27:43.678Z");
+    check_datetime_ko("2024-a-28T09:27:43.678Z");
+    check_datetime_ko("2024-1a-28T09:27:43.678Z");
+    check_datetime_ko("2024-1-28T09:27:43.678Z");
+    check_datetime_ko("2024-0-28T09:27:43.678Z");
+    check_datetime_ko("202428T09:27:43.678Z");
+    check_datetime_ko("2024-00-28T09:27:43.678Z");
+    check_datetime_ko("2024-13-28T09:27:43.678Z");
+    check_datetime_ko("2024-20-28T09:27:43.678Z");
 
     // invalid day
-    check_datetime_ko("2024-07T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-1T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-aT09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-1aT09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-0T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-00T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-32T09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
+    check_datetime_ko("2024-07T09:27:43.678Z");
+    check_datetime_ko("2024-07-T09:27:43.678Z");
+    check_datetime_ko("2024-07-1T09:27:43.678Z");
+    check_datetime_ko("2024-07-aT09:27:43.678Z");
+    check_datetime_ko("2024-07-1aT09:27:43.678Z");
+    check_datetime_ko("2024-07-0T09:27:43.678Z");
+    check_datetime_ko("2024-07-00T09:27:43.678Z");
+    check_datetime_ko("2024-07-32T09:27:43.678Z");
 
     // T separator
-    check_datetime_ko("2024-07-2809:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28t09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28x09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28 09:27:43.678Z", YY_ERROR_INVALID_DATETIME);
+    check_datetime_ko("2024-07-2809:27:43.678Z");
+    check_datetime_ko("2024-07-28t09:27:43.678Z");
+    check_datetime_ko("2024-07-28x09:27:43.678Z");
+    check_datetime_ko("2024-07-28 09:27:43.678Z");
 
     // invalid hour
-    check_datetime_ko("2024-07-28T27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28Ta:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T1a:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T0:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T24:27:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T002:27:43.678Z", YY_ERROR_INVALID_DATETIME);
+    check_datetime_ko("2024-07-28T27:43.678Z");
+    check_datetime_ko("2024-07-28T:27:43.678Z");
+    check_datetime_ko("2024-07-28Ta:27:43.678Z");
+    check_datetime_ko("2024-07-28T1a:27:43.678Z");
+    check_datetime_ko("2024-07-28T0:27:43.678Z");
+    check_datetime_ko("2024-07-28T24:27:43.678Z");
+    check_datetime_ko("2024-07-28T002:27:43.678Z");
 
     // invalid minute
-    check_datetime_ko("2024-07-28T09:a:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09::43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09: :43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:a:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:0:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:1:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:60:43.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:004:43.678Z", YY_ERROR_INVALID_DATETIME);
+    check_datetime_ko("2024-07-28T09:a:43.678Z");
+    check_datetime_ko("2024-07-28T09::43.678Z");
+    check_datetime_ko("2024-07-28T09: :43.678Z");
+    check_datetime_ko("2024-07-28T09:a:43.678Z");
+    check_datetime_ko("2024-07-28T09:0:43.678Z");
+    check_datetime_ko("2024-07-28T09:1:43.678Z");
+    check_datetime_ko("2024-07-28T09:60:43.678Z");
+    check_datetime_ko("2024-07-28T09:004:43.678Z");
 
     // invalid second
-    check_datetime_ko("2024-07-28T09:27:678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27: .678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27:a.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27:0.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27:1.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27:60.678Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27:004.678Z", YY_ERROR_INVALID_DATETIME);
+    check_datetime_ko("2024-07-28T09:27:678Z");
+    check_datetime_ko("2024-07-28T09:27: .678Z");
+    check_datetime_ko("2024-07-28T09:27:a.678Z");
+    check_datetime_ko("2024-07-28T09:27:0.678Z");
+    check_datetime_ko("2024-07-28T09:27:1.678Z");
+    check_datetime_ko("2024-07-28T09:27:60.678Z");
+    check_datetime_ko("2024-07-28T09:27:004.678Z");
 
     // invalid millis
-    check_datetime_ko("2024-07-28T09:27:43.", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27:43.Z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27:43. ", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27:43.a", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27:43.1a", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27:43.12a", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27:43.123a", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27:43.1234", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27:43.+123", YY_ERROR_INVALID_DATETIME);
+    check_datetime_ko("2024-07-28T09:27:43.");
+    check_datetime_ko("2024-07-28T09:27:43.Z");
+    check_datetime_ko("2024-07-28T09:27:43. ");
+    check_datetime_ko("2024-07-28T09:27:43.a");
+    check_datetime_ko("2024-07-28T09:27:43.1a");
+    check_datetime_ko("2024-07-28T09:27:43.12a");
+    check_datetime_ko("2024-07-28T09:27:43.123a");
+    check_datetime_ko("2024-07-28T09:27:43.1234");
+    check_datetime_ko("2024-07-28T09:27:43.+123");
 
     // zulu time
-    check_datetime_ko("2024-07-28T09:27:43.678z", YY_ERROR_INVALID_DATETIME);
-    check_datetime_ko("2024-07-28T09:27:43.678ZZ", YY_ERROR_INVALID_DATETIME);
+    check_datetime_ko("2024-07-28T09:27:43.678z");
+    check_datetime_ko("2024-07-28T09:27:43.678ZZ");
 
     // invalid date
-    check_datetime_ko("2024-02-31", YY_ERROR_INVALID_DATETIME); // 31-feb!
-    check_datetime_ko("2023-02-29", YY_ERROR_INVALID_DATETIME); // non-leap-year
+    check_datetime_ko("2024-02-31"); // 31-feb!
+    check_datetime_ko("2023-02-29"); // non-leap-year
 }
 
 void test_string_ok(void)
@@ -670,7 +629,7 @@ void test_string_ko(void)
     // 0 in-the-middle
     yy_symbol_t symbol = {0};
     char str[] = { '"', 'a', 'b', 'c', 0, 'd', 'e', 'f', '"', 0};
-    TEST_CHECK(parse_quoted_string(str, str + sizeof(str) - 1, &symbol) == YY_ERROR_INVALID_STRING);
+    TEST_CHECK(read_symbol_string(str, str + sizeof(str) - 1, &symbol) == YY_ERROR_INVALID_STRING);
 }
 
 void test_boolean_ok(void)
@@ -686,32 +645,32 @@ void test_boolean_ok(void)
 
 void test_boolean_ko(void)
 {
-    check_boolean_ko("", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko(" ", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko(" true", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko(" false", YY_ERROR_INVALID_BOOLEAN);
+    check_boolean_ko("");
+    check_boolean_ko(" ");
+    check_boolean_ko(" true");
+    check_boolean_ko(" false");
 
-    check_boolean_ko("aaa", YY_ERROR_INVALID_BOOLEAN);
+    check_boolean_ko("aaa");
 
-    check_boolean_ko("txue", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko("tRue", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko("trUe", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko("TrUE", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko("tRUE", YY_ERROR_INVALID_BOOLEAN);
+    check_boolean_ko("txue");
+    check_boolean_ko("tRue");
+    check_boolean_ko("trUe");
+    check_boolean_ko("TrUE");
+    check_boolean_ko("tRUE");
 
-    check_boolean_ko("fxlse", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko("fAlse", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko("falsE", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko("falsE", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko("FaLSE", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko("fALSE", YY_ERROR_INVALID_BOOLEAN);
+    check_boolean_ko("fxlse");
+    check_boolean_ko("fAlse");
+    check_boolean_ko("falsE");
+    check_boolean_ko("falsE");
+    check_boolean_ko("FaLSE");
+    check_boolean_ko("fALSE");
 
-    check_boolean_ko("trueX", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko("TrueX", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko("TRUEX", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko("falseX", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko("FalseX", YY_ERROR_INVALID_BOOLEAN);
-    check_boolean_ko("FALSEX", YY_ERROR_INVALID_BOOLEAN);
+    check_boolean_ko("trueX");
+    check_boolean_ko("TrueX");
+    check_boolean_ko("TRUEX");
+    check_boolean_ko("falseX");
+    check_boolean_ko("FalseX");
+    check_boolean_ko("FALSEX");
 }
 
 void test_variable_ok(void)
@@ -790,6 +749,7 @@ void test_next_ok(void)
     check_next_ok("mod(10, 2)", YY_SYMBOL_MODULO, &symbol);
     check_next_ok("datepart(${d}, \"day\")", YY_SYMBOL_DATEPART, &symbol);
     check_next_ok("length(${str})", YY_SYMBOL_LENGTH, &symbol);
+    check_next_ok("datetrunc(\"2024-08-24T08:55:06.123Z\", \"day\")", YY_SYMBOL_DATETRUNC, &symbol);
     check_next_ok("sqrt(2)", YY_SYMBOL_SQRT, &symbol);
     check_next_ok("sin(PI)", YY_SYMBOL_SIN, &symbol);
     check_next_ok("cos(PI)", YY_SYMBOL_COS, &symbol);

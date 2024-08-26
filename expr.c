@@ -36,6 +36,11 @@ SOFTWARE.
 /**
  * @see https://www.engr.mun.ca/~theo/Misc/exp_parsing.htm
  * @see https://en.wikipedia.org/wiki/Shunting_yard_algorithm
+ * 
+ * Guidelines:
+ *   - yy_xxx() functions are public (declared in header), rest are private (static)
+ *   - read_symbol_xxx() functions converts text to symbol
+ *   - parse_xxx() functions are the recursive descent parser functions
  */
 
 #if defined(__GNUC__) || defined(__clang__) || defined(__INTEL_LLVM_COMPILER) 
@@ -46,6 +51,15 @@ SOFTWARE.
     #define INLINE        /**/
     #define likely(x)     x
     #define unlikely(x)   x
+#endif
+
+#if defined __has_attribute
+    #if __has_attribute(__fallthrough__)
+        # define fallthrough   __attribute__((__fallthrough__))
+    #endif
+#endif
+#ifndef fallthrough
+    # define fallthrough   do {} while (0)  /* fallthrough */
 #endif
 
 #define MIN(a,b) (((a)<(b))?(a):(b))
@@ -60,6 +74,12 @@ SOFTWARE.
 #endif
 
 #define FPTR  (void (*)(void))
+
+#define token_error(err_)        (yy_token_t){ .error = err_                        , .type = YY_TOKEN_ERROR    }
+#define token_bool(val_)         (yy_token_t){ .bool_val = val_                     , .type = YY_TOKEN_BOOL     }
+#define token_number(val_)       (yy_token_t){ .number_val = val_                   , .type = YY_TOKEN_NUMBER   }
+#define token_datetime(val_)     (yy_token_t){ .datetime_val = val_                 , .type = YY_TOKEN_DATETIME }
+#define token_string(ptr_, len_) (yy_token_t){ .str_val = {.ptr = ptr_, .len = len_}, .type = YY_TOKEN_STRING   }
 
 typedef yy_token_t (*yy_func_0)(void);
 typedef yy_token_t (*yy_func_1)(yy_token_t);
@@ -114,6 +134,7 @@ typedef enum yy_symbol_e
     YY_SYMBOL_NOW,                  //!< now
     YY_SYMBOL_DATEPART,             //!< datepart
     YY_SYMBOL_DATEADD,              //!< dateadd
+    YY_SYMBOL_DATETRUNC,            //!< datetrunc
     YY_SYMBOL_LENGTH,               //!< length
     YY_SYMBOL_LOWER,                //!< lower
     YY_SYMBOL_UPPER,                //!< upper
@@ -158,10 +179,11 @@ typedef struct yy_identifier_t
 static const int days_in_month[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 // Forward declarations
-static bool parse_expr_number(yy_parser_t *parser);
+static void parse_expr_number(yy_parser_t *parser);
 static yy_token_t func_now(void);
 static yy_token_t func_datepart(yy_token_t date, yy_token_t part);
-static yy_token_t func_dateadd(yy_token_t date, yy_token_t part, yy_token_t value);
+static yy_token_t func_dateadd(yy_token_t date, yy_token_t value, yy_token_t part);
+static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part);
 static yy_token_t func_trim(yy_token_t str);
 static yy_token_t func_lower(yy_token_t str);
 static yy_token_t func_upper(yy_token_t str);
@@ -201,40 +223,41 @@ static yy_token_t func_min(yy_token_t x, yy_token_t y);
 // Identifiers list (alphabetical order)
 static const yy_identifier_t identifiers[] =
 {
-    { "E",        YY_SYMBOL_CONST_E  },
-    { "FALSE",    YY_SYMBOL_FALSE    },
-    { "False",    YY_SYMBOL_FALSE    },
-    { "PI",       YY_SYMBOL_CONST_PI },
-    { "TRUE",     YY_SYMBOL_TRUE     },
-    { "True",     YY_SYMBOL_TRUE     },
-    { "abs",      YY_SYMBOL_ABS      },
-    { "ceil",     YY_SYMBOL_CEIL     },
-    { "concat",   YY_SYMBOL_CONCAT   },
-    { "cos",      YY_SYMBOL_COS      },
-    { "dateadd",  YY_SYMBOL_DATEADD  },
-    { "datepart", YY_SYMBOL_DATEPART },
-    { "exp",      YY_SYMBOL_EXP      },
-    { "false",    YY_SYMBOL_FALSE    },
-    { "floor",    YY_SYMBOL_FLOOR    },
-    { "length",   YY_SYMBOL_LENGTH   },
-    { "log",      YY_SYMBOL_LOG      },
-    { "lower",    YY_SYMBOL_LOWER    },
-    { "max",      YY_SYMBOL_MAX      },
-    { "min",      YY_SYMBOL_MIN      },
-    { "mod",      YY_SYMBOL_MODULO   },
-    { "now",      YY_SYMBOL_NOW      },
-    { "pow",      YY_SYMBOL_POWER    },
-    { "sin",      YY_SYMBOL_SIN      },
-    { "sqrt",     YY_SYMBOL_SQRT     },
-    { "substr",   YY_SYMBOL_SUBSTR   },
-    { "tan",      YY_SYMBOL_TAN      },
-    { "trim",     YY_SYMBOL_TRIM     },
-    { "true",     YY_SYMBOL_TRUE     },
-    { "trunc",    YY_SYMBOL_TRUNC    },
-    { "upper",    YY_SYMBOL_UPPER    },
+    { "E",         YY_SYMBOL_CONST_E   },
+    { "FALSE",     YY_SYMBOL_FALSE     },
+    { "False",     YY_SYMBOL_FALSE     },
+    { "PI",        YY_SYMBOL_CONST_PI  },
+    { "TRUE",      YY_SYMBOL_TRUE      },
+    { "True",      YY_SYMBOL_TRUE      },
+    { "abs",       YY_SYMBOL_ABS       },
+    { "ceil",      YY_SYMBOL_CEIL      },
+    { "concat",    YY_SYMBOL_CONCAT    },
+    { "cos",       YY_SYMBOL_COS       },
+    { "dateadd",   YY_SYMBOL_DATEADD   },
+    { "datepart",  YY_SYMBOL_DATEPART  },
+    { "datetrunc", YY_SYMBOL_DATETRUNC },
+    { "exp",       YY_SYMBOL_EXP       },
+    { "false",     YY_SYMBOL_FALSE     },
+    { "floor",     YY_SYMBOL_FLOOR     },
+    { "length",    YY_SYMBOL_LENGTH    },
+    { "log",       YY_SYMBOL_LOG       },
+    { "lower",     YY_SYMBOL_LOWER     },
+    { "max",       YY_SYMBOL_MAX       },
+    { "min",       YY_SYMBOL_MIN       },
+    { "mod",       YY_SYMBOL_MODULO    },
+    { "now",       YY_SYMBOL_NOW       },
+    { "pow",       YY_SYMBOL_POWER     },
+    { "sin",       YY_SYMBOL_SIN       },
+    { "sqrt",      YY_SYMBOL_SQRT      },
+    { "substr",    YY_SYMBOL_SUBSTR    },
+    { "tan",       YY_SYMBOL_TAN       },
+    { "trim",      YY_SYMBOL_TRIM      },
+    { "true",      YY_SYMBOL_TRUE      },
+    { "trunc",     YY_SYMBOL_TRUNC     },
+    { "upper",     YY_SYMBOL_UPPER     },
 };
 
-#define NUM_IDENTIFIERS (sizeof(identifiers)/sizeof(yy_identifier_t))
+#define NUM_IDENTIFIERS (sizeof(identifiers)/sizeof(identifiers[0]))
 
 static const yy_token_t symbol_to_token[] =
 {
@@ -285,6 +308,7 @@ static const yy_token_t symbol_to_token[] =
     [YY_SYMBOL_NOW]             = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_now        , 0 } },
     [YY_SYMBOL_DATEPART]        = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_datepart   , 2 } },
     [YY_SYMBOL_DATEADD]         = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_dateadd    , 3 } },
+    [YY_SYMBOL_DATETRUNC]       = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_datetrunc  , 2 } },
     [YY_SYMBOL_LENGTH]          = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_length     , 1 } },
     [YY_SYMBOL_LOWER]           = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_lower      , 1 } },
     [YY_SYMBOL_UPPER]           = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_upper      , 1 } },
@@ -296,9 +320,113 @@ static const yy_token_t symbol_to_token[] =
     [YY_SYMBOL_END]             = { .type = YY_TOKEN_NULL }
 };
 
+static const char *date_parts[] = {
+    "year",     // 0
+    "month",    // 1
+    "day",      // 2
+    "hour",     // 3
+    "minute",   // 4
+    "second",   // 5
+    "millis"    // 6
+};
+
+#define NUM_DATEPARTS (sizeof(date_parts)/sizeof(date_parts[0]))
+
 // Check if year is a leap year
 static bool is_leap_year(int year) {
     return (((year % 4 == 0) && (year % 100 != 0)) || (year % 400 == 0));
+}
+
+/**
+ * Search the identifier matching the given string
+ * using the binary search algo on the identifiers list.
+ * 
+ * @param[in] begin String to parse (without initial spaces).
+ * @param[in] len Identifier length.
+ * 
+ * @return The identifier,
+ *         NULL if not found.
+ */
+INLINE
+static const yy_identifier_t * get_identifier(const char *str, size_t len)
+{
+    int imin = 0;
+    int imax = NUM_IDENTIFIERS - 1;
+
+    while (imax >= imin)
+    {
+        int i = imin + (imax-imin) / 2;
+
+        int c = *str - identifiers[i].str[0];
+
+        if (c == 0)
+        {
+            c = strncmp(str, identifiers[i].str, len);
+            c = (c != 0 ? c : '\0' - identifiers[i].str[len]);
+        }
+
+        if (c == 0)
+            return &identifiers[i];
+        else if (c > 0)
+            imin = i + 1;
+        else
+            imax = i - 1;
+    }
+
+    return NULL;
+}
+
+/**
+ * Search the datepart identifier corresponding  to the given string.
+ * 
+ * @param[in] str String to match.
+ * 
+ * @return The identifier (0 = year, 1 = month, ..., 6 = millis),
+ *         -1 if not found.
+ */
+INLINE
+static int get_datepart(const yy_str_t *str)
+{
+    for (size_t i = 0; i < NUM_DATEPARTS; i++)
+        if (strncmp(str->ptr, date_parts[i], str->len) == 0)
+            return i;
+
+    return -1;
+}
+
+/**
+ * Skips initial spaces.
+ * 
+ * @param[in] begin String to parse.
+ * @param[in] end One char after the string end.
+ * 
+ * @return Pointer to first non-space char or the end of the string.
+ */
+INLINE
+const char * skip_spaces(const char *begin, const char *end)
+{
+    assert(begin && end && begin <= end);
+
+SKIP_SPACES_START:
+
+    if (unlikely(begin == end))
+        return begin;
+
+    switch (*begin)
+    {
+        case '\t': // tab
+        case '\n': // new line
+        case '\f': // form feed
+        case '\v': // vertical tab
+        case '\r': // carriage return
+        case ' ':  // space
+        case (char) 160:  // non-breaking space
+            ++begin;
+            goto SKIP_SPACES_START;
+        default: break;
+    }
+
+    return begin;
 }
 
 /**
@@ -346,7 +474,7 @@ static bool is_leap_year(int year) {
  *          YY_ERROR_INVALID_NUMBER: Invalid number.
  *          YY_ERROR_RANGE_NUMBER: Number out of range
  */
-static yy_retcode_e parse_number(const char *begin, const char *end, yy_symbol_t *symbol)
+static yy_retcode_e read_symbol_number(const char *begin, const char *end, yy_symbol_t *symbol)
 {
     assert(begin && end && begin <= end && symbol);
 
@@ -505,343 +633,6 @@ NUMBER_READ_FLOAT:
 }
 
 /**
- * Parse a datetime value in format ISO-8601.
- *    - format = YYYY-MM-DD[Tdd:mm:ss[.SSS[Z]]]
- *    - @see https://en.wikipedia.org/wiki/ISO_8601
- * 
- * Parse whole content (^.*$).
- * Anything distinct than datetime is reported as error.
- * 
- * YY_SYMBOL_DATETIME_VAL
- *    - regex := (19[7-9][0-9]|2[0-9]{3})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])(.[0-9]{1,3})?)?
- *    - range := [1970-01-01T00:00:00.000Z, 2999-12-31T23:59:59.999Z]
- *
- * This function was inspired by re2c generated code:
- * 
- *   bool lex2(const char *str) {
- *     const char *YYMARKER = NULL;
- *     /\*!re2c
- *        re2c:yyfill:enable = 0;
- *        re2c:define:YYCTYPE = char;
- *        re2c:define:YYCURSOR = str;
- *        year = '19' [7-9][0-9] | '2' [0-9]{3};
- *        month = '0' [1-9] | '1' [0-2];
- *        day = '0' [1-9] | [12][0-9] | '3' [01];
- *        hour = [01][0-9] | '2' [0-3];
- *        minute = [0-5][0-9];
- *        second = [0-5][0-9];
- *        millis = [0-9]{1,3};
- *        datetime = year '-' month '-' day ( 'T' hour ':' minute ':' second ( '.' millis )? 'Z'? )?;
- *        datetime { return true; }
- *        *        { return false; }
- *     *\/
- *   }
- * 
- * @param[in] begin String to parse (without initial spaces).
- * @param[in] end One char after the string end.
- * @param[out] symbol Parsed symbol.
- * 
- * @return  YY_OK: Success.
- *          YY_ERROR_INVALID_DATETIME: Invalid datetime.
- *          YY_ERROR_RANGE_DATETIME: Datetime out of range
- */
-static yy_retcode_e parse_datetime(const char *begin, const char *end, yy_symbol_t *symbol)
-{
-    assert(begin && end && begin <= end && symbol);
-
-    size_t len = 0;
-    char buf[128];
-    const char *ptr = begin;
-    struct tm stm = {0};
-    int millis = 0;
-
-    // epoch time (used to parse only time)
-    stm.tm_year = 70;
-    stm.tm_mon = 0;
-    stm.tm_mday = 1;
-
-//DATETIME_DATE:
-
-    if (end - ptr < 10) // no place for YYYY-MM-DD
-        return YY_ERROR_INVALID_DATETIME;
-
-    switch (*ptr) {
-        case '1': buf[len++] = *ptr; goto DATETIME_YEAR_1900;
-        case '2': buf[len++] = *ptr; goto DATETIME_YEAR_2000;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-DATETIME_YEAR_1900:
-
-    if (*++ptr != '9')
-        return YY_ERROR_INVALID_DATETIME;
-
-    buf[len++] = *ptr;
-
-    switch (*++ptr) {
-        case '7' ... '9': buf[len++] = *ptr; break;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-    switch (*++ptr) {
-        case '0' ... '9': buf[len++] = *ptr; goto DATETIME_READ_YEAR;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-DATETIME_YEAR_2000:
-
-    for (int i = 0; i < 3; i++)
-    {
-        switch (*++ptr) {
-            case '0' ... '9': buf[len++] = *ptr; break;
-            default: return YY_ERROR_INVALID_DATETIME;
-        }
-    }
-
-DATETIME_READ_YEAR:
-
-    assert(len == 4);
-    buf[len] = 0;
-    stm.tm_year = atoi(buf) - 1900;
-    len = 0;
-
-    if (*++ptr != '-')
-        return YY_ERROR_INVALID_DATETIME;
-
-//DATETIME_MONTH:
-
-    switch (*++ptr) {
-        case '0': buf[len++] = *ptr; goto DATETIME_MONTH_0;
-        case '1': buf[len++] = *ptr; goto DATETIME_MONTH_1;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-DATETIME_MONTH_0:
-
-    switch (*++ptr) {
-        case '1' ... '9': buf[len++] = *ptr; goto DATETIME_READ_MONTH;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-DATETIME_MONTH_1:
-
-    switch (*++ptr) {
-        case '0' ... '2': buf[len++] = *ptr; goto DATETIME_READ_MONTH;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-DATETIME_READ_MONTH:
-
-    assert(len == 2);
-    buf[len] = 0;
-    stm.tm_mon = atoi(buf) - 1;
-    len = 0;
-
-    if (*++ptr != '-')
-        return YY_ERROR_INVALID_DATETIME;
-
-//DATETIME_DAY:
-
-    switch (*++ptr) {
-        case '0': buf[len++] = *ptr; goto DATETIME_DAY_0;
-        case '1' ... '2': buf[len++] = *ptr; goto DATETIME_DAY_1_2;
-        case '3': buf[len++] = *ptr; goto DATETIME_DAY_3;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-DATETIME_DAY_0:
-
-    switch (*++ptr) {
-        case '1' ... '9': buf[len++] = *ptr; goto DATETIME_READ_DAY;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-DATETIME_DAY_1_2:
-
-    switch (*++ptr) {
-        case '0' ... '9': buf[len++] = *ptr; goto DATETIME_READ_DAY;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-DATETIME_DAY_3:
-
-    switch (*++ptr) {
-        case '0' ... '1': buf[len++] = *ptr; goto DATETIME_READ_DAY;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-DATETIME_READ_DAY:
-
-    assert(len == 2);
-    buf[len] = 0;
-    stm.tm_mday = atoi(buf);
-    len = 0;
-
-    if (++ptr == end)
-        goto DATETIME_END;
-
-    if (*ptr != 'T')
-        return YY_ERROR_INVALID_DATETIME;
-
-    if (++ptr == end)
-        return YY_ERROR_INVALID_DATETIME;
-
-//DATETIME_TIME:
-
-    if (end - ptr < 8) // no place for hh:mm:ss
-        return YY_ERROR_INVALID_DATETIME;
-
-//DATETIME_HOUR:
-
-    switch (*ptr) {
-        case '0' ... '1': buf[len++] = *ptr; goto DATETIME_HOUR_0_1;
-        case '2': buf[len++] = *ptr; goto DATETIME_HOUR_2;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-DATETIME_HOUR_0_1:
-
-    switch (*++ptr) {
-        case '0' ... '9': buf[len++] = *ptr; goto DATETIME_READ_HOUR;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-DATETIME_HOUR_2:
-
-    switch (*++ptr) {
-        case '0' ... '3': buf[len++] = *ptr; goto DATETIME_READ_HOUR;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-DATETIME_READ_HOUR:
-
-    assert(len == 2);
-    buf[len] = 0;
-    stm.tm_hour = atoi(buf);
-    len = 0;
-
-    if (*++ptr != ':')
-        return YY_ERROR_INVALID_DATETIME;
-
-//DATETIME_MINUTE:
-
-    switch (*++ptr) {
-        case '0' ... '5': buf[len++] = *ptr; break;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-    switch (*++ptr) {
-        case '0' ... '9': buf[len++] = *ptr; goto DATETIME_READ_MINUTE;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-DATETIME_READ_MINUTE:
-
-    assert(len == 2);
-    buf[len] = 0;
-    stm.tm_min = atoi(buf);
-    len = 0;
-
-    if (*++ptr != ':')
-        return YY_ERROR_INVALID_DATETIME;
-
-//DATETIME_SECOND:
-
-    switch (*++ptr) {
-        case '0' ... '5': buf[len++] = *ptr; break;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-    switch (*++ptr) {
-        case '0' ... '9': buf[len++] = *ptr; goto DATETIME_READ_SECOND;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-DATETIME_READ_SECOND:
-
-    assert(len == 2);
-    buf[len] = 0;
-    stm.tm_sec = atoi(buf);
-    len = 0;
-
-    if (++ptr == end)
-        goto DATETIME_END;
-
-    switch (*ptr) {
-        case '.': goto DATETIME_MILLIS;
-        case 'Z': goto DATETIME_ENDING_Z;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-DATETIME_MILLIS:
-
-    if (++ptr == end)
-        return YY_ERROR_INVALID_DATETIME;
-
-    switch (*ptr) {
-        case '0' ... '9': buf[len++] = *ptr; break;
-        default: return YY_ERROR_INVALID_DATETIME;
-    }
-
-    for (int i = 0; i < 2; i++)
-    {
-        if (++ptr == end)
-            goto DATETIME_READ_MILLIS;
-
-        switch (*ptr) {
-            case '0' ... '9': buf[len++] = *ptr; break;
-            case 'Z': goto DATETIME_READ_MILLIS;
-            default: return YY_ERROR_INVALID_DATETIME;
-        }
-    }
-
-    ++ptr;
-
-DATETIME_READ_MILLIS:
-
-    assert(len > 0 && len < 4);
-    buf[len] = 0;
-    millis = atoi(buf);
-    len = 0;
-
-    if (ptr == end)
-        goto DATETIME_END;
-
-    if (*ptr != 'Z')
-        return YY_ERROR_INVALID_DATETIME;
-
-DATETIME_ENDING_Z:
-
-    if (++ptr != end)
-        return YY_ERROR_INVALID_DATETIME;
-
-DATETIME_END:
-
-    assert(ptr > begin);
-    assert(ptr <= end);
-
-    if (stm.tm_mday > days_in_month[stm.tm_mon])
-        return YY_ERROR_INVALID_DATETIME;
-
-    if (!is_leap_year(1900 + stm.tm_year) && stm.tm_mon == 1 && stm.tm_mday == 29)
-        return YY_ERROR_INVALID_DATETIME;
-
-    errno = 0;
-
-    time_t val_secs =  timegm(&stm);
-
-    if (errno != 0)
-        return YY_ERROR_RANGE_DATETIME;
-
-    symbol->lexeme.ptr = begin;
-    symbol->lexeme.len = (uint32_t) (ptr - begin);
-    symbol->type = YY_SYMBOL_DATETIME_VAL;
-    symbol->datetime_val = val_secs * 1000 + millis;
-
-    return YY_OK;
-}
-
-/**
  * Parse a string surrounded by double-quotes.
  * Accepted escape characters: \n (next-line), \t (tab), \" (double-quote), \\ (slash)
  * 
@@ -858,7 +649,7 @@ DATETIME_END:
  * @return  YY_OK: Success.
  *          YY_ERROR_INVALID_STRING: Invalid string.
  */
-static yy_retcode_e parse_quoted_string(const char *begin, const char *end, yy_symbol_t *symbol)
+static yy_retcode_e read_symbol_string(const char *begin, const char *end, yy_symbol_t *symbol)
 {
     assert(begin && end && begin <= end && symbol);
 
@@ -907,96 +698,6 @@ STRING_END:
 }
 
 /**
- * Parse a boolean.
- * Accepted values = true, True, TRUE, false, False, FALSE.
- *
- * Parse whole content (^.*$).
- * Anything distinct than allowed values is reported as error.
- * 
- * Returned types:
- *   - YY_SYMBOL_TRUE
- *   - YY_SYMBOL_FALSE
- * 
- * @param[in] begin String to parse (without initial spaces).
- * @param[in] end One char after the string end.
- * @param[out] symbol Parsed symbol.
- * 
- * @return  YY_OK: Success.
- *          YY_ERROR_INVALID_BOOLEAN: Invalid boolean.
- */
-static yy_retcode_e parse_boolean(const char *begin, const char *end, yy_symbol_t *symbol)
-{
-    assert(begin && end && begin <= end && symbol);
-
-    const char *ptr = begin;
-
-    if (begin == end)
-        return YY_ERROR_INVALID_BOOLEAN;
-
-    switch (*ptr) {
-        case 'f':
-        case 'F': goto BOOLEAN_FALSE;
-        case 't':
-        case 'T': goto BOOLEAN_TRUE;
-        default: return YY_ERROR_INVALID_BOOLEAN;
-    }
-
-BOOLEAN_FALSE:
-
-    if (end - ptr != 5)
-        return YY_ERROR_INVALID_BOOLEAN;
-
-    switch (*++ptr) {
-        case 'A':
-            if (ptr[-1] == 'F' && ptr[1] == 'L' && ptr[2] == 'S' && ptr[3] == 'E') {
-                symbol->type = YY_SYMBOL_FALSE;
-                symbol->lexeme.ptr = begin;
-                symbol->lexeme.len = 5;
-                return YY_OK;
-            }
-            else
-                return YY_ERROR_INVALID_BOOLEAN;
-        case 'a':
-            if (ptr[1] == 'l' && ptr[2] == 's' && ptr[3] == 'e') {
-                symbol->type = YY_SYMBOL_FALSE;
-                symbol->lexeme.ptr = begin;
-                symbol->lexeme.len = 5;
-                return YY_OK;
-            }
-            else
-                return YY_ERROR_INVALID_BOOLEAN;
-        default: return YY_ERROR_INVALID_BOOLEAN;
-    }
-
-BOOLEAN_TRUE:
-
-    if (end - ptr != 4)
-        return YY_ERROR_INVALID_BOOLEAN;
-
-    switch (*++ptr) {
-        case 'R':
-            if (ptr[-1] == 'T' && ptr[1] == 'U' && ptr[2] == 'E') {
-                symbol->type = YY_SYMBOL_TRUE;
-                symbol->lexeme.ptr = begin;
-                symbol->lexeme.len = 4;
-                return YY_OK;
-            }
-            else
-                return YY_ERROR_INVALID_BOOLEAN;
-        case 'r':
-            if (ptr[1] == 'u' && ptr[2] == 'e') {
-                symbol->type = YY_SYMBOL_TRUE;
-                symbol->lexeme.ptr = begin;
-                symbol->lexeme.len = 4;
-                return YY_OK;
-            }
-            else
-                return YY_ERROR_INVALID_BOOLEAN;
-        default: return YY_ERROR_INVALID_BOOLEAN;
-    }
-}
-
-/**
  * Parse a variable name.
  * 
  * Format  = '${' [a-zA-Z]('.'? [a-zA-Z0-9_]+)* '}'
@@ -1015,7 +716,7 @@ BOOLEAN_TRUE:
  * @return  YY_OK: Success.
  *          YY_ERROR_INVALID_VARIABLE: Invalid string.
  */
-static yy_retcode_e parse_variable(const char *begin, const char *end, yy_symbol_t *symbol)
+static yy_retcode_e read_symbol_variable(const char *begin, const char *end, yy_symbol_t *symbol)
 {
     assert(begin && end && begin <= end && symbol);
 
@@ -1037,20 +738,23 @@ VARIABLE_NAME:
 
     switch (*ptr) {
         case '.': 
-            if (ptr[-1] == '.') // two consecutive dot is not allowed
+            if (ptr[-1] == '.') // consecutive dots are not allowed
                 return YY_ERROR_INVALID_VARIABLE;
+            fallthrough;
         case '0' ... '9':
         case 'A' ... 'Z':
         case '_':
-        case 'a' ... 'z': goto VARIABLE_NAME;
-        case '}': goto VARIABLE_END;
-        default: return YY_ERROR_INVALID_VARIABLE;
+        case 'a' ... 'z':
+            goto VARIABLE_NAME;
+        case '}':
+            if (ptr[-1] == '.') // ending dot is not allowed
+                return YY_ERROR_INVALID_VARIABLE;
+            goto VARIABLE_END;
+        default: 
+            return YY_ERROR_INVALID_VARIABLE;
     }
 
 VARIABLE_END:
-
-    if (ptr[-1] == '.') // ending dot not allowed
-        return YY_ERROR_INVALID_VARIABLE;
 
     ++ptr;
 
@@ -1072,49 +776,6 @@ VARIABLE_END:
     return YY_OK; \
 } while(0)
 
-#define return_error(err_) do { \
-    return err_; \
-} while(0)
-
-/**
- * Search the identifier matching the given string
- * using the binary search algo on the identifiers list.
- * 
- * @param[in] begin String to parse (without initial spaces).
- * @param[in] len Identifier length.
- * 
- * @return The identifier,
- *         NULL if not found.
- */
-INLINE
-static const yy_identifier_t * get_identifier(const char *str, size_t len)
-{
-    int imin = 0;
-    int imax = NUM_IDENTIFIERS - 1;
-
-    while (imax >= imin)
-    {
-        int i = imin + (imax-imin) / 2;
-
-        int c = *str - identifiers[i].str[0];
-
-        if (c == 0)
-        {
-            c = strncmp(str, identifiers[i].str, len);
-            c = (c != 0 ? c : '\0' - identifiers[i].str[len]);
-        }
-
-        if (c == 0)
-            return &identifiers[i];
-        else if (c > 0)
-            imin = i + 1;
-        else
-            imax = i - 1;
-    }
-
-    return NULL;
-}
-
 /**
  * Parse symbol.
  * 
@@ -1134,7 +795,7 @@ static const yy_identifier_t * get_identifier(const char *str, size_t len)
  * @return  YY_OK: success
  *          other: error.
  */
-static yy_retcode_e parse_symbol(const char *begin, const char *end, yy_symbol_t *symbol)
+static yy_retcode_e read_symbol(const char *begin, const char *end, yy_symbol_t *symbol)
 {
     assert(begin);
     assert(end);
@@ -1150,8 +811,8 @@ static yy_retcode_e parse_symbol(const char *begin, const char *end, yy_symbol_t
 
     switch (*ptr) {
         case '!': goto NEXT_EXCLAMATION;
-        case '"': goto NEXT_DOUBLE_QUOTE;
-        case '$': goto NEXT_DOLLAR;
+        case '"': return read_symbol_string(ptr, end, symbol);
+        case '$': return read_symbol_variable(ptr, end, symbol);
         case '%': return_ok(YY_SYMBOL_MODULO_OP, 1);
         case '&': goto NEXT_AMPERSAND;
         case '(': return_ok(YY_SYMBOL_PAREN_LEFT, 1);
@@ -1161,7 +822,7 @@ static yy_retcode_e parse_symbol(const char *begin, const char *end, yy_symbol_t
         case ',': return_ok(YY_SYMBOL_COMMA, 1);
         case '-': return_ok(YY_SYMBOL_SUBTRACTION_OP, 1);
         case '/': return_ok(YY_SYMBOL_DIVIDE_OP, 1);
-        case '0' ... '9': goto NEXT_DIGIT;
+        case '0' ... '9': return read_symbol_number(ptr, end, symbol);
         case '<': goto NEXT_LESS;
         case '=': goto NEXT_EQUALS;
         case '>': goto NEXT_GREAT;
@@ -1169,7 +830,7 @@ static yy_retcode_e parse_symbol(const char *begin, const char *end, yy_symbol_t
         case '^': return_ok(YY_SYMBOL_POWER_OP, 1);
         case 'a' ... 'z': goto NEXT_IDENTIFIER;
         case '|': goto NEXT_VERTICAL_BAR;
-        default: return_error(YY_ERROR_SYNTAX);
+        default: return YY_ERROR_SYNTAX;
     }
 
 NEXT_EXCLAMATION: // !, !=
@@ -1182,27 +843,15 @@ NEXT_EXCLAMATION: // !, !=
         default: return_ok(YY_SYMBOL_NOT_OP, 1);
     }
 
-NEXT_DOUBLE_QUOTE:
-
-    return parse_quoted_string(ptr, end, symbol);
-
-NEXT_DOLLAR:
-
-    return parse_variable(ptr, end, symbol);
-
 NEXT_AMPERSAND: // &&
 
     if (unlikely(++ptr == end))
-        return_error(YY_ERROR_SYNTAX);
+        return YY_ERROR_SYNTAX;
 
     switch (*ptr) {
         case '&': return_ok(YY_SYMBOL_AND_OP, 2);
-        default: return_error(YY_ERROR_SYNTAX);
+        default: return YY_ERROR_SYNTAX;
     }
-
-NEXT_DIGIT:
-
-    return parse_number(ptr, end, symbol);
 
 NEXT_LESS: // <, <=
 
@@ -1217,11 +866,11 @@ NEXT_LESS: // <, <=
 NEXT_EQUALS: // ==
 
     if (unlikely(++ptr == end))
-        return_error(YY_ERROR_SYNTAX);
+        return YY_ERROR_SYNTAX;
 
     switch (*ptr) {
         case '=': return_ok(YY_SYMBOL_EQUALS_OP, 2);
-        default: return_error(YY_ERROR_SYNTAX);
+        default: return YY_ERROR_SYNTAX;
     }
 
 NEXT_GREAT: // >, >=
@@ -1254,52 +903,17 @@ NEXT_IDENTIFIER_END:
     if ((identifier = get_identifier(begin, len)) != NULL)
         return_ok(identifier->type, len);
 
-    return_error(YY_ERROR_SYNTAX);
+    return YY_ERROR_SYNTAX;
 
 NEXT_VERTICAL_BAR: // ||
 
     if (unlikely(++ptr == end))
-        return_error(YY_ERROR_SYNTAX);
+        return YY_ERROR_SYNTAX;
 
     switch (*ptr) {
         case '|': return_ok(YY_SYMBOL_OR_OP, 2);
-        default: return_error(YY_ERROR_SYNTAX);
+        default: return YY_ERROR_SYNTAX;
     }
-}
-
-/**
- * Skips initial spaces.
- * 
- * @param[in] begin String to parse.
- * @param[in] end One char after the string end.
- * 
- * @return Pointer to first non-space char or the end of the string.
- */
-INLINE
-const char * skip_spaces(const char *begin, const char *end)
-{
-    assert(begin && end && begin <= end);
-
-SKIP_SPACES_START:
-
-    if (unlikely(begin == end))
-        return begin;
-
-    switch (*begin)
-    {
-        case '\t': // tab
-        case '\n': // new line
-        case '\f': // form feed
-        case '\v': // vertical tab
-        case '\r': // carriage return
-        case ' ':  // space
-        case (char) 160:  // non-breaking space
-            ++begin;
-            goto SKIP_SPACES_START;
-        default: break;
-    }
-
-    return begin;
 }
 
 INLINE
@@ -1655,17 +1269,16 @@ static void process_current_symbol(yy_parser_t *parser)
 
 /**
  * Read next symbol and updates parser state accordingly.
+ * Errors are notified via parser.error.
  * 
  * @param[in] parser Parser to update.
- * 
- * @return true = success, false = error.
  */
-static bool consume(yy_parser_t *parser)
+static void consume(yy_parser_t *parser)
 {
     assert(parser);
 
     if (parser->error != YY_OK)
-        return false;
+        return;
 
     if (parser->curr_symbol.type != YY_SYMBOL_NONE)
     {
@@ -1675,7 +1288,7 @@ static bool consume(yy_parser_t *parser)
         process_current_symbol(parser);
 
         if (parser->error != YY_OK)
-            return false;
+            return;
 
         // moving current position just after the accepted symbol
         parser->curr += parser->curr_symbol.lexeme.len;
@@ -1686,39 +1299,33 @@ static bool consume(yy_parser_t *parser)
     assert(parser->curr <= parser->end);
 
     if (parser->curr_symbol.type == YY_SYMBOL_END)
-        return true;
+        return;
 
     parser->prev_symbol = parser->curr_symbol;
     parser->curr = skip_spaces(parser->curr, parser->end);
-    parser->error = parse_symbol(parser->curr, parser->end, &parser->curr_symbol);
-
-    return (parser->error == YY_OK);
+    parser->error = read_symbol(parser->curr, parser->end, &parser->curr_symbol);
 }
 
 /**
  * Checks that current symbol is the expected one and moves to next symbol.
+ * Errors are notified via parser.error.
  * 
  * @param[in] parser Parser to update.
  * @param[in] type Expected symbol.
- * 
- * @return true = success, 
- *         false = unexpected symbol or 
- *                 error processing current symbol or 
- *                 error reading next symbol.
  */
-static bool expect(yy_parser_t *parser, yy_symbol_e type)
+static void expect(yy_parser_t *parser, yy_symbol_e type)
 {
     assert(parser);
 
     if (parser->error != YY_OK)
-        return false;
+        return;
 
     if (parser->curr_symbol.type != type) {
         parser->error = YY_ERROR_SYNTAX;
-        return false;
+        return;
     }
 
-    return consume(parser);
+    consume(parser);
 }
 
 static void init_parser(yy_parser_t *parser, const char *begin, const char *end, yy_stack_t *stack)
@@ -1742,18 +1349,16 @@ static void init_parser(yy_parser_t *parser, const char *begin, const char *end,
 /**
  * Parse a numeric term.
  * 
- * @see Numeric expression grammar (in comments).
+ * @see Grammar described in docs.
  * 
  * @param[in] parser Parser to update.
- * 
- * @return true = success, false = error.
  */
-static bool parse_term_number(yy_parser_t *parser)
+static void parse_term_number(yy_parser_t *parser)
 {
     assert(parser);
 
     if (parser->error != YY_OK)
-        return false;
+        return;
 
     switch (parser->curr_symbol.type)
     {
@@ -1815,28 +1420,26 @@ static bool parse_term_number(yy_parser_t *parser)
         default:
             parser->error = YY_ERROR_SYNTAX;
     }
-
-    return (parser->error == YY_OK);
 }
 
 /**
  * Parse a numeric expression until an unrecognized symbol is found.
  * 
  * @param[in] Parser object.
- * 
- * @return true=success, false=error.
  */
-static bool parse_expr_number(yy_parser_t *parser)
+static void parse_expr_number(yy_parser_t *parser)
 { 
     assert(parser);
 
 NUMBER_EXPR_START:
 
     if (parser->error != YY_OK)
-        return false;
+        return;
 
-    if (!parse_term_number(parser))
-        return false;
+    parse_term_number(parser);
+
+    if (parser->error != YY_OK)
+        return;
 
     switch (parser->curr_symbol.type)
     {
@@ -1850,20 +1453,125 @@ NUMBER_EXPR_START:
             goto NUMBER_EXPR_START;
         case YY_SYMBOL_END: 
             consume(parser);
-            goto NUMBER_EXPR_END;
+            break;
         default:
-            goto NUMBER_EXPR_END;
+            break;
     }
-
-NUMBER_EXPR_END:
-
-    // TODO: flush auxiliar stack
-
-    return true;
 }
 
 /**
- * Implements a recursive descent parser.
+ * Parse a datepart identifier.
+ * 
+ * @param[in] Parser object.
+ */
+static void parse_datepart(yy_parser_t *parser)
+{
+    assert(parser);
+
+    int part = -1;
+
+    if (parser->error != YY_OK)
+        return;
+
+    if (parser->curr_symbol.type != YY_SYMBOL_STRING_VAL) {
+        parser->error = YY_ERROR_SYNTAX;
+        return;
+    }
+
+    if ((part = get_datepart(&parser->curr_symbol.str_val)) < 0) {
+        parser->error = YY_ERROR_SYNTAX;
+        return;
+    }
+
+    parser->curr_symbol.type = YY_SYMBOL_NUMBER_VAL;
+    parser->curr_symbol.number_val = (double) part;
+
+    consume(parser);
+}
+
+/**
+ * Parse a datetime value.
+ * 
+ * @param[in] Parser object.
+ */
+static void parse_datetime_val(yy_parser_t *parser)
+{
+    assert(parser);
+
+    if (parser->error != YY_OK)
+        return;
+
+    if (parser->curr_symbol.type != YY_SYMBOL_STRING_VAL) {
+        parser->error = YY_ERROR_SYNTAX;
+        return;
+    }
+
+    const char *begin = parser->curr_symbol.str_val.ptr;
+    const char *end = begin + parser->curr_symbol.str_val.len;
+
+    yy_token_t token = yy_parse_datetime(begin, end);
+
+    if (token.type != YY_TOKEN_DATETIME) {
+        parser->error = YY_ERROR_INVALID_DATETIME;
+        return;
+    }
+
+    parser->curr_symbol.type = YY_SYMBOL_DATETIME_VAL;
+    parser->curr_symbol.datetime_val = token.datetime_val;
+
+    consume(parser);
+}
+
+/**
+ * Parse a datetime term.
+ * 
+ * @param[in] Parser object.
+ */
+static void parse_term_datetime(yy_parser_t *parser)
+{ 
+    assert(parser);
+
+    if (parser->error != YY_OK)
+        return;
+
+    switch (parser->curr_symbol.type)
+    {
+        case YY_SYMBOL_STRING_VAL:
+            parse_datetime_val(parser);
+            break;
+        case YY_SYMBOL_VARIABLE:
+            consume(parser);
+            break;
+        case YY_SYMBOL_NOW: 
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
+        case YY_SYMBOL_DATEADD: 
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_term_datetime(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_number(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_datepart(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
+        case YY_SYMBOL_DATETRUNC: 
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_term_datetime(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_datepart(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
+        default:
+            parser->error = YY_ERROR_SYNTAX;
+    }
+}
+
+/**
+ * Implements a recursive descent parser for numeric expressions.
  * 
  * Grammar:
  * 
@@ -1872,8 +1580,8 @@ NUMBER_EXPR_END:
  *    numInfixOp    = "+" | "-" | "*" | "/" | "^" | "%"
  *    numPrefixOp   = "+" | "-"
  *    numFunc       = numFunc1 | numFunc2
- *    numFunc1      = ("abs" | "sqrt" | "ceil" | "trunc" | "floor" | "sin" | "cos" | "tan" | "exp" | "log") "(" numExpr ")"
- *    numFunc2      = ("min" | "max" | "pow" | "mod") "(" numExpr "," numExpr ")"
+ *    numFunc1      = <numFuncIdentifier> "(" numExpr ")"
+ *    numFunc2      = <numFuncIdentifier> "(" numExpr "," numExpr ")"
  *    numValue      = numConst | numVal | numVar
  * 
  * Exceptions:
@@ -1899,12 +1607,483 @@ yy_retcode_e yy_compile_number(const char *begin, const char *end, yy_stack_t *s
     return parser.error;
 }
 
+/**
+ * Implements a recursive descent parser for datetime expressions.
+ * 
+ * Grammar:
+ * 
+ *    timeTerm      = timeVal | timeVar | timeFunc
+ *    timeFunc      = timeFuncNow | timeFuncAdd | timeFuncTrunc
+ *    timeFuncNow   = "now" "(" ")"
+ *    timeFuncAdd   = "dateadd" "(" timeTerm "," numExpr "," timePart ")"
+ *    timeFuncTrunc = "datetrunc" "(" timeTerm "," timePart ")"
+ *    timePart      = "'" ("year" | "month" | "day" | "hour" | "minute" | "second" | "millis") "'"
+ *    timeVal       = quoted_string_with_time
+ * 
+ * Notes:
+ * 
+ *    Parenthesis not supported because there are not operators nor precedence to consider.
+ */
+yy_retcode_e yy_compile_datetime(const char *begin, const char *end, yy_stack_t *stack, const char **err)
+{
+    if (!begin || !end || begin > end || !stack || !stack->data)
+        return YY_ERROR_ARGS;
+
+    yy_parser_t parser;
+
+    init_parser(&parser, begin, end, stack);
+    parse_term_datetime(&parser);
+
+    if (parser.error == YY_OK && parser.curr_symbol.type != YY_SYMBOL_END)
+        parser.error = YY_ERROR_SYNTAX;
+
+    if (err && parser.error != YY_OK)
+        *err = parser.curr;
+
+    return parser.error;
+}
+
+yy_token_t yy_parse_number(const char *begin, const char *end)
+{
+    if (!begin || !end || begin >= end)
+        return token_error(YY_ERROR_VALUE);
+
+    bool negated = false;
+    yy_symbol_t symbol = {0};
+
+    switch (*begin) {
+        case '-':
+            negated = true;
+            fallthrough;
+        case '+':
+            begin++;
+            break;
+        default:
+            break;
+    }
+
+    if (read_symbol_number(begin, end, &symbol) != YY_OK)
+        return token_error(YY_ERROR_VALUE);
+    
+    if (symbol.lexeme.ptr + symbol.lexeme.len != end)
+        return token_error(YY_ERROR_VALUE);
+
+    if (negated)
+        return token_number(-symbol.number_val);
+    else
+        return token_number(+symbol.number_val);
+}
+
+/**
+ * Parse a boolean.
+ * Accepted values = true, True, TRUE, false, False, FALSE.
+ *
+ * Parse whole content (^.*$).
+ * Anything distinct than allowed values is reported as error.
+ * 
+ * @param[in] begin String to parse (without initial spaces).
+ * @param[in] end One char after the string end.
+ * @param[out] symbol Parsed symbol.
+ * 
+ * @return  Token with the result. 
+ *          On error, token.type == YY_TOKEN_ERROR.
+ */
+yy_token_t yy_parse_bool(const char *begin, const char *end)
+{
+    if (!begin || !end || begin >= end)
+        goto BOOLEAN_ERROR;
+
+    const char *ptr = begin;
+
+    switch (*ptr) {
+        case 'f':
+        case 'F': goto BOOLEAN_FALSE;
+        case 't':
+        case 'T': goto BOOLEAN_TRUE;
+        default: goto BOOLEAN_ERROR;
+    }
+
+BOOLEAN_FALSE:
+
+    if (end - ptr != 5)
+        goto BOOLEAN_ERROR;
+
+    switch (*++ptr) {
+        case 'A':
+            if (ptr[-1] == 'F' && ptr[1] == 'L' && ptr[2] == 'S' && ptr[3] == 'E')
+                return token_bool(false);
+            else
+                goto BOOLEAN_ERROR;
+        case 'a':
+            if (ptr[1] == 'l' && ptr[2] == 's' && ptr[3] == 'e')
+                return token_bool(false);
+            else
+                goto BOOLEAN_ERROR;
+        default:
+            goto BOOLEAN_ERROR;
+    }
+
+BOOLEAN_TRUE:
+
+    if (end - ptr != 4)
+        goto BOOLEAN_ERROR;
+
+    switch (*++ptr) {
+        case 'R':
+            if (ptr[-1] == 'T' && ptr[1] == 'U' && ptr[2] == 'E')
+                return token_bool(true);
+            else
+                goto BOOLEAN_ERROR;
+        case 'r':
+            if (ptr[1] == 'u' && ptr[2] == 'e')
+                return token_bool(true);
+            else
+                goto BOOLEAN_ERROR;
+        default: 
+            goto BOOLEAN_ERROR;
+    }
+
+BOOLEAN_ERROR:
+
+    return token_error(YY_ERROR_VALUE);
+}
+
+/**
+ * Parse a datetime value in format ISO-8601.
+ *    - format = YYYY-MM-DD[Tdd:mm:ss[.SSS[Z]]]
+ *    - example = 2024-08-24T08:19:25.402Z
+ *    - regex := (19[7-9][0-9]|2[0-9]{3})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])(.[0-9]{1,3})?)?
+ *    - range := [1970-01-01T00:00:00.000Z, 2999-12-31T23:59:59.999Z]
+ *    - @see https://en.wikipedia.org/wiki/ISO_8601
+ * 
+ * Parse whole content (^.*$).
+ * Anything distinct than datetime is reported as error.
+ *
+ * This function was inspired by re2c generated code:
+ * 
+ *   bool lex2(const char *str) {
+ *     const char *YYMARKER = NULL;
+ *     /\*!re2c
+ *        re2c:yyfill:enable = 0;
+ *        re2c:define:YYCTYPE = char;
+ *        re2c:define:YYCURSOR = str;
+ *        year = '19' [7-9][0-9] | '2' [0-9]{3};
+ *        month = '0' [1-9] | '1' [0-2];
+ *        day = '0' [1-9] | [12][0-9] | '3' [01];
+ *        hour = [01][0-9] | '2' [0-3];
+ *        minute = [0-5][0-9];
+ *        second = [0-5][0-9];
+ *        millis = [0-9]{1,3};
+ *        datetime = year '-' month '-' day ( 'T' hour ':' minute ':' second ( '.' millis )? 'Z'? )?;
+ *        datetime { return true; }
+ *        *        { return false; }
+ *     *\/
+ *   }
+ * 
+ * @param[in] begin String to parse (without initial spaces).
+ * @param[in] end One char after the string end.
+ * 
+ * @return  Token with the result. 
+ *          On error, token.type == YY_TOKEN_ERROR.
+ */
+yy_token_t yy_parse_datetime(const char *begin, const char *end)
+{
+    if (!begin || !end || begin > end)
+        goto DATETIME_ERROR;
+
+    size_t len = 0;
+    char buf[128];
+    const char *ptr = begin;
+    struct tm stm = {0};
+    int millis = 0;
+
+    // epoch time (used to parse only time)
+    stm.tm_year = 70;
+    stm.tm_mon = 0;
+    stm.tm_mday = 1;
+
+//DATETIME_DATE:
+
+    if (end - ptr < 10) // no place for YYYY-MM-DD
+        goto DATETIME_ERROR;
+
+    switch (*ptr) {
+        case '1': buf[len++] = *ptr; goto DATETIME_YEAR_1900;
+        case '2': buf[len++] = *ptr; goto DATETIME_YEAR_2000;
+        default: goto DATETIME_ERROR;
+    }
+
+DATETIME_YEAR_1900:
+
+    if (*++ptr != '9')
+        goto DATETIME_ERROR;
+
+    buf[len++] = *ptr;
+
+    switch (*++ptr) {
+        case '7' ... '9': buf[len++] = *ptr; break;
+        default: goto DATETIME_ERROR;
+    }
+
+    switch (*++ptr) {
+        case '0' ... '9': buf[len++] = *ptr; goto DATETIME_READ_YEAR;
+        default: goto DATETIME_ERROR;
+    }
+
+DATETIME_YEAR_2000:
+
+    for (int i = 0; i < 3; i++)
+    {
+        switch (*++ptr) {
+            case '0' ... '9': buf[len++] = *ptr; break;
+            default: goto DATETIME_ERROR;
+        }
+    }
+
+DATETIME_READ_YEAR:
+
+    assert(len == 4);
+    buf[len] = 0;
+    stm.tm_year = atoi(buf) - 1900;
+    len = 0;
+
+    if (*++ptr != '-')
+        goto DATETIME_ERROR;
+
+//DATETIME_MONTH:
+
+    switch (*++ptr) {
+        case '0': buf[len++] = *ptr; goto DATETIME_MONTH_0;
+        case '1': buf[len++] = *ptr; goto DATETIME_MONTH_1;
+        default: goto DATETIME_ERROR;
+    }
+
+DATETIME_MONTH_0:
+
+    switch (*++ptr) {
+        case '1' ... '9': buf[len++] = *ptr; goto DATETIME_READ_MONTH;
+        default: goto DATETIME_ERROR;
+    }
+
+DATETIME_MONTH_1:
+
+    switch (*++ptr) {
+        case '0' ... '2': buf[len++] = *ptr; goto DATETIME_READ_MONTH;
+        default: goto DATETIME_ERROR;
+    }
+
+DATETIME_READ_MONTH:
+
+    assert(len == 2);
+    buf[len] = 0;
+    stm.tm_mon = atoi(buf) - 1;
+    len = 0;
+
+    if (*++ptr != '-')
+        goto DATETIME_ERROR;
+
+//DATETIME_DAY:
+
+    switch (*++ptr) {
+        case '0': buf[len++] = *ptr; goto DATETIME_DAY_0;
+        case '1' ... '2': buf[len++] = *ptr; goto DATETIME_DAY_1_2;
+        case '3': buf[len++] = *ptr; goto DATETIME_DAY_3;
+        default: goto DATETIME_ERROR;
+    }
+
+DATETIME_DAY_0:
+
+    switch (*++ptr) {
+        case '1' ... '9': buf[len++] = *ptr; goto DATETIME_READ_DAY;
+        default: goto DATETIME_ERROR;
+    }
+
+DATETIME_DAY_1_2:
+
+    switch (*++ptr) {
+        case '0' ... '9': buf[len++] = *ptr; goto DATETIME_READ_DAY;
+        default: goto DATETIME_ERROR;
+    }
+
+DATETIME_DAY_3:
+
+    switch (*++ptr) {
+        case '0' ... '1': buf[len++] = *ptr; goto DATETIME_READ_DAY;
+        default: goto DATETIME_ERROR;
+    }
+
+DATETIME_READ_DAY:
+
+    assert(len == 2);
+    buf[len] = 0;
+    stm.tm_mday = atoi(buf);
+    len = 0;
+
+    if (++ptr == end)
+        goto DATETIME_END;
+
+    if (*ptr != 'T')
+        goto DATETIME_ERROR;
+
+    if (++ptr == end)
+        goto DATETIME_ERROR;
+
+//DATETIME_TIME:
+
+    if (end - ptr < 8) // no place for hh:mm:ss
+        goto DATETIME_ERROR;
+
+//DATETIME_HOUR:
+
+    switch (*ptr) {
+        case '0' ... '1': buf[len++] = *ptr; goto DATETIME_HOUR_0_1;
+        case '2': buf[len++] = *ptr; goto DATETIME_HOUR_2;
+        default: goto DATETIME_ERROR;
+    }
+
+DATETIME_HOUR_0_1:
+
+    switch (*++ptr) {
+        case '0' ... '9': buf[len++] = *ptr; goto DATETIME_READ_HOUR;
+        default: goto DATETIME_ERROR;
+    }
+
+DATETIME_HOUR_2:
+
+    switch (*++ptr) {
+        case '0' ... '3': buf[len++] = *ptr; goto DATETIME_READ_HOUR;
+        default: goto DATETIME_ERROR;
+    }
+
+DATETIME_READ_HOUR:
+
+    assert(len == 2);
+    buf[len] = 0;
+    stm.tm_hour = atoi(buf);
+    len = 0;
+
+    if (*++ptr != ':')
+        goto DATETIME_ERROR;
+
+//DATETIME_MINUTE:
+
+    switch (*++ptr) {
+        case '0' ... '5': buf[len++] = *ptr; break;
+        default: goto DATETIME_ERROR;
+    }
+
+    switch (*++ptr) {
+        case '0' ... '9': buf[len++] = *ptr; goto DATETIME_READ_MINUTE;
+        default: goto DATETIME_ERROR;
+    }
+
+DATETIME_READ_MINUTE:
+
+    assert(len == 2);
+    buf[len] = 0;
+    stm.tm_min = atoi(buf);
+    len = 0;
+
+    if (*++ptr != ':')
+        goto DATETIME_ERROR;
+
+//DATETIME_SECOND:
+
+    switch (*++ptr) {
+        case '0' ... '5': buf[len++] = *ptr; break;
+        default: goto DATETIME_ERROR;
+    }
+
+    switch (*++ptr) {
+        case '0' ... '9': buf[len++] = *ptr; goto DATETIME_READ_SECOND;
+        default: goto DATETIME_ERROR;
+    }
+
+DATETIME_READ_SECOND:
+
+    assert(len == 2);
+    buf[len] = 0;
+    stm.tm_sec = atoi(buf);
+    len = 0;
+
+    if (++ptr == end)
+        goto DATETIME_END;
+
+    switch (*ptr) {
+        case '.': goto DATETIME_MILLIS;
+        case 'Z': goto DATETIME_ENDING_Z;
+        default: goto DATETIME_ERROR;
+    }
+
+DATETIME_MILLIS:
+
+    if (++ptr == end)
+        goto DATETIME_ERROR;
+
+    switch (*ptr) {
+        case '0' ... '9': buf[len++] = *ptr; break;
+        default: goto DATETIME_ERROR;
+    }
+
+    for (int i = 0; i < 2; i++)
+    {
+        if (++ptr == end)
+            goto DATETIME_READ_MILLIS;
+
+        switch (*ptr) {
+            case '0' ... '9': buf[len++] = *ptr; break;
+            case 'Z': goto DATETIME_READ_MILLIS;
+            default: goto DATETIME_ERROR;
+        }
+    }
+
+    ++ptr;
+
+DATETIME_READ_MILLIS:
+
+    assert(len > 0 && len < 4);
+    buf[len] = 0;
+    millis = atoi(buf);
+    len = 0;
+
+    if (ptr == end)
+        goto DATETIME_END;
+
+    if (*ptr != 'Z')
+        goto DATETIME_ERROR;
+
+DATETIME_ENDING_Z:
+
+    if (++ptr != end)
+        goto DATETIME_ERROR;
+
+DATETIME_END:
+
+    assert(ptr > begin);
+    assert(ptr <= end);
+
+    if (stm.tm_mday > days_in_month[stm.tm_mon])
+        goto DATETIME_ERROR;
+
+    if (!is_leap_year(1900 + stm.tm_year) && stm.tm_mon == 1 && stm.tm_mday == 29)
+        goto DATETIME_ERROR;
+
+    errno = 0;
+
+    time_t val_secs =  timegm(&stm);
+
+    if (errno != 0)
+        goto DATETIME_ERROR;
+
+    return (yy_token_t){.type = YY_TOKEN_DATETIME, .datetime_val = (uint64_t) val_secs * 1000 + millis};
+
+DATETIME_ERROR:
+
+    return token_error(YY_ERROR_VALUE);
+}
+
 // ==================================================
 
-#undef return_error
-#define return_error(err_) return (yy_token_t){ .error = err_, .type = YY_TOKEN_ERROR };
-#define return_number(val_) return (yy_token_t){ .number_val = val_, .type = YY_TOKEN_NUMBER };
-#define return_datetime(val_) return (yy_token_t){ .datetime_val = val_, .type = YY_TOKEN_DATETIME };
 #define UNUSED(x) (void)(x)
 
 static yy_token_t func_now(void) {
@@ -1917,10 +2096,16 @@ static yy_token_t func_datepart(yy_token_t date, yy_token_t part) {
     return (yy_token_t){0};
 }
 
-static yy_token_t func_dateadd(yy_token_t date, yy_token_t part, yy_token_t value) {
+static yy_token_t func_dateadd(yy_token_t date, yy_token_t value, yy_token_t part) {
     UNUSED(date);
     UNUSED(part);
     UNUSED(value);
+    return (yy_token_t){0};
+}
+
+static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part) {
+    UNUSED(date);
+    UNUSED(part);
     return (yy_token_t){0};
 }
 
@@ -1960,7 +2145,7 @@ static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len) 
 static yy_token_t func_abs(yy_token_t x)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     x.number_val = fabs(x.number_val);
 
@@ -1970,7 +2155,7 @@ static yy_token_t func_abs(yy_token_t x)
 static yy_token_t func_ceil(yy_token_t x)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     x.number_val = ceil(x.number_val);
 
@@ -1980,7 +2165,7 @@ static yy_token_t func_ceil(yy_token_t x)
 static yy_token_t func_floor(yy_token_t x)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     x.number_val = floor(x.number_val);
 
@@ -1990,7 +2175,7 @@ static yy_token_t func_floor(yy_token_t x)
 static yy_token_t func_trunc(yy_token_t x)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     x.number_val = trunc(x.number_val);
 
@@ -2000,7 +2185,7 @@ static yy_token_t func_trunc(yy_token_t x)
 static yy_token_t func_sin(yy_token_t x)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     x.number_val = sin(x.number_val);
 
@@ -2010,7 +2195,7 @@ static yy_token_t func_sin(yy_token_t x)
 static yy_token_t func_cos(yy_token_t x)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     x.number_val = cos(x.number_val);
 
@@ -2020,7 +2205,7 @@ static yy_token_t func_cos(yy_token_t x)
 static yy_token_t func_tan(yy_token_t x)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     x.number_val = tan(x.number_val);
 
@@ -2030,7 +2215,7 @@ static yy_token_t func_tan(yy_token_t x)
 static yy_token_t func_exp(yy_token_t x)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     x.number_val = exp(x.number_val);
 
@@ -2040,7 +2225,7 @@ static yy_token_t func_exp(yy_token_t x)
 static yy_token_t func_log(yy_token_t x)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     x.number_val = log(x.number_val);
 
@@ -2050,47 +2235,47 @@ static yy_token_t func_log(yy_token_t x)
 static yy_token_t func_max(yy_token_t x, yy_token_t y)
 {
     if (x.type != y.type)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     if (x.type == YY_TOKEN_NUMBER)
     {
         double val = fmax(x.number_val, y.number_val);
-        return_number(val);
+        return token_number(val);
     }
 
     if (x.type == YY_TOKEN_DATETIME)
     {
         uint64_t val = MAX(x.datetime_val, y.datetime_val);
-        return_datetime(val);
+        return token_datetime(val);
     }
 
-    return_error(YY_ERROR_VALUE);
+    return token_error(YY_ERROR_VALUE);
 }
 
 static yy_token_t func_min(yy_token_t x, yy_token_t y)
 {
     if (x.type != y.type)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     if (x.type == YY_TOKEN_NUMBER)
     {
         double val = fmin(x.number_val, y.number_val);
-        return_number(val);
+        return token_number(val);
     }
 
     if (x.type == YY_TOKEN_DATETIME)
     {
         uint64_t val = MIN(x.datetime_val, y.datetime_val);
-        return_datetime(val);
+        return token_datetime(val);
     }
 
-    return_error(YY_ERROR_VALUE);
+    return token_error(YY_ERROR_VALUE);
 }
 
 static yy_token_t func_sqrt(yy_token_t x)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     x.number_val = sqrt(x.number_val);
 
@@ -2100,20 +2285,20 @@ static yy_token_t func_sqrt(yy_token_t x)
 static yy_token_t func_pow(yy_token_t x, yy_token_t y)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     if (y.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     double val = pow(x.number_val, y.number_val);
 
-    return_number(val);
+    return token_number(val);
 }
 
 static yy_token_t func_minus(yy_token_t x)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     x.number_val *= -1;
 
@@ -2123,7 +2308,7 @@ static yy_token_t func_minus(yy_token_t x)
 static yy_token_t func_ident(yy_token_t x)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     return x;
 }
@@ -2131,66 +2316,66 @@ static yy_token_t func_ident(yy_token_t x)
 static yy_token_t func_mult(yy_token_t x, yy_token_t y)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     if (y.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     double val = x.number_val * y.number_val;
 
-    return_number(val);
+    return token_number(val);
 }
 
 static yy_token_t func_div(yy_token_t x, yy_token_t y)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     if (y.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     double val = x.number_val / y.number_val;
 
-    return_number(val);
+    return token_number(val);
 }
 
 static yy_token_t func_mod(yy_token_t x, yy_token_t y)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     if (y.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     double val = fmod(x.number_val, y.number_val);
 
-    return_number(val);
+    return token_number(val);
 }
 
 static yy_token_t func_addition(yy_token_t x, yy_token_t y)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     if (y.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     double val = x.number_val + y.number_val;
 
-    return_number(val);
+    return token_number(val);
 }
 
 static yy_token_t func_subtraction(yy_token_t x, yy_token_t y)
 {
     if (x.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     if (y.type != YY_TOKEN_NUMBER)
-        return_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR_VALUE);
 
     double val = x.number_val - y.number_val;
 
-    return_number(val);
+    return token_number(val);
 }
 
 static yy_token_t func_not(yy_token_t x) {
