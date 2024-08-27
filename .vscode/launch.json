@@ -5,7 +5,7 @@
       "type": "cppdbg",
       "request": "launch",
       "program": "${workspaceFolder}/tests",
-      "args": [ "grammar_number" ],
+      "args": [ "yy_compile_number" ],
       "stopAtEntry": false,
       "cwd": "${fileDirname}",
       "environment": [],

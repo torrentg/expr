@@ -132,6 +132,9 @@ typedef struct yy_stack_t {
  * If you just want to create a token, don't use these functions, instead 
  * assign the type and value directly.
  *
+ * There is not a parser for variables because variables appears always into
+ * expressions.
+ * 
  * Caution, strings and datetimes surrounded by double-quote are reported as error.
  * 
  * Features:

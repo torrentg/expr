@@ -31,6 +31,7 @@ SOFTWARE.
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
+#include <sys/time.h>
 #include "expr.h"
 
 /**
@@ -134,6 +135,7 @@ typedef enum yy_symbol_e
     YY_SYMBOL_NOW,                  //!< now
     YY_SYMBOL_DATEPART,             //!< datepart
     YY_SYMBOL_DATEADD,              //!< dateadd
+    YY_SYMBOL_DATESET,              //!< dateset
     YY_SYMBOL_DATETRUNC,            //!< datetrunc
     YY_SYMBOL_LENGTH,               //!< length
     YY_SYMBOL_LOWER,                //!< lower
@@ -183,13 +185,14 @@ static void parse_expr_number(yy_parser_t *parser);
 static yy_token_t func_now(void);
 static yy_token_t func_datepart(yy_token_t date, yy_token_t part);
 static yy_token_t func_dateadd(yy_token_t date, yy_token_t value, yy_token_t part);
+static yy_token_t func_dateset(yy_token_t date, yy_token_t value, yy_token_t part);
 static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part);
 static yy_token_t func_trim(yy_token_t str);
 static yy_token_t func_lower(yy_token_t str);
 static yy_token_t func_upper(yy_token_t str);
-static yy_token_t func_length(yy_token_t str);
 static yy_token_t func_concat(yy_token_t str1, yy_token_t str2);
 static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len);
+static yy_token_t func_length(yy_token_t str);
 static yy_token_t func_abs(yy_token_t x);
 static yy_token_t func_ceil(yy_token_t x);
 static yy_token_t func_floor(yy_token_t x);
@@ -203,11 +206,11 @@ static yy_token_t func_sqrt(yy_token_t x);
 static yy_token_t func_pow(yy_token_t x, yy_token_t y);
 static yy_token_t func_minus(yy_token_t x);
 static yy_token_t func_ident(yy_token_t x);
+static yy_token_t func_addition(yy_token_t x, yy_token_t y);
+static yy_token_t func_subtraction(yy_token_t x, yy_token_t y);
 static yy_token_t func_mult(yy_token_t x, yy_token_t y);
 static yy_token_t func_div(yy_token_t x, yy_token_t y);
 static yy_token_t func_mod(yy_token_t x, yy_token_t y);
-static yy_token_t func_addition(yy_token_t x, yy_token_t y);
-static yy_token_t func_subtraction(yy_token_t x, yy_token_t y);
 static yy_token_t func_not(yy_token_t x);
 static yy_token_t func_lt(yy_token_t x, yy_token_t y);
 static yy_token_t func_le(yy_token_t x, yy_token_t y);
@@ -235,6 +238,7 @@ static const yy_identifier_t identifiers[] =
     { "cos",       YY_SYMBOL_COS       },
     { "dateadd",   YY_SYMBOL_DATEADD   },
     { "datepart",  YY_SYMBOL_DATEPART  },
+    { "dateset",   YY_SYMBOL_DATESET   },
     { "datetrunc", YY_SYMBOL_DATETRUNC },
     { "exp",       YY_SYMBOL_EXP       },
     { "false",     YY_SYMBOL_FALSE     },
@@ -308,6 +312,7 @@ static const yy_token_t symbol_to_token[] =
     [YY_SYMBOL_NOW]             = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_now        , 0 } },
     [YY_SYMBOL_DATEPART]        = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_datepart   , 2 } },
     [YY_SYMBOL_DATEADD]         = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_dateadd    , 3 } },
+    [YY_SYMBOL_DATESET]         = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_dateset    , 3 } },
     [YY_SYMBOL_DATETRUNC]       = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_datetrunc  , 2 } },
     [YY_SYMBOL_LENGTH]          = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_length     , 1 } },
     [YY_SYMBOL_LOWER]           = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_lower      , 1 } },
@@ -388,7 +393,7 @@ INLINE
 static int get_datepart(const yy_str_t *str)
 {
     for (size_t i = 0; i < NUM_DATEPARTS; i++)
-        if (strncmp(str->ptr, date_parts[i], str->len) == 0)
+        if (strncmp(str->ptr, date_parts[i], str->len) == 0 && date_parts[i][str->len] == '\0')
             return i;
 
     return -1;
@@ -1074,8 +1079,10 @@ static bool simplify_stack(yy_parser_t *parser)
     if (token0->function.num_args == 0)
         return false;
 
-    if ((yy_func_1) token0->function.ptr == func_ident)
+    if ((yy_func_1) token0->function.ptr == func_ident) {
+        pop_stack(parser);
         return true;
+    }
 
     yy_token_t *token1 = get(stack, 1);
 
@@ -1548,6 +1555,7 @@ static void parse_term_datetime(yy_parser_t *parser)
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
         case YY_SYMBOL_DATEADD: 
+        case YY_SYMBOL_DATESET: 
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
             parse_term_datetime(parser);
@@ -1613,10 +1621,10 @@ yy_retcode_e yy_compile_number(const char *begin, const char *end, yy_stack_t *s
  * Grammar:
  * 
  *    timeTerm      = timeVal | timeVar | timeFunc
- *    timeFunc      = timeFuncNow | timeFuncAdd | timeFuncTrunc
- *    timeFuncNow   = "now" "(" ")"
- *    timeFuncAdd   = "dateadd" "(" timeTerm "," numExpr "," timePart ")"
- *    timeFuncTrunc = "datetrunc" "(" timeTerm "," timePart ")"
+ *    timeFunc      = timeFunc0 | timeFunc2 | timeFunc3
+ *    timeFunc0     = "now" "(" ")"
+ *    timeFunc2     = "datetrunc" "(" timeTerm "," timePart ")"
+ *    timeFunc3     = ("dateadd" | "dateset") "(" timeTerm "," numExpr "," timePart ")"
  *    timePart      = "'" ("year" | "month" | "day" | "hour" | "minute" | "second" | "millis") "'"
  *    timeVal       = quoted_string_with_time
  * 
@@ -2086,28 +2094,149 @@ DATETIME_ERROR:
 
 #define UNUSED(x) (void)(x)
 
-static yy_token_t func_now(void) {
-    return (yy_token_t){0};
+// --- Functions returning a datetime
+
+static yy_token_t func_now(void)
+{
+    struct timeval stv = {0};
+
+    gettimeofday(&stv, NULL);
+
+    uint64_t val = (uint64_t)(stv.tv_sec) * 1000 + (uint64_t)(stv.tv_usec) / 1000;
+
+    return token_datetime(val);
 }
 
-static yy_token_t func_datepart(yy_token_t date, yy_token_t part) {
-    UNUSED(date);
-    UNUSED(part);
-    return (yy_token_t){0};
+static yy_token_t func_dateadd(yy_token_t date, yy_token_t value, yy_token_t part)
+{
+    if (date.type != YY_TOKEN_DATETIME)
+        return token_error(YY_ERROR_VALUE);
+
+    if (value.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    if (part.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    time_t time = (time_t)(date.datetime_val / 1000UL);
+    long ms = (long)(date.datetime_val % 1000);
+    int val = (int) value.number_val;
+    struct tm stm = {0};
+
+    gmtime_r(&time, &stm);
+
+    switch((int) part.number_val)
+    {
+        case 0: stm.tm_year += val; break;
+        case 1: stm.tm_mon  += val; break;
+        case 2: stm.tm_mday += val; break;
+        case 3: stm.tm_hour += val; break;
+        case 4: stm.tm_min  += val; break;
+        case 5: stm.tm_sec  += val; break;
+        case 6: 
+            stm.tm_sec += (ms + val) / 1000;
+            ms = (ms + val) % 1000;
+            if (ms < 0) {
+                stm.tm_sec--;
+                ms += 1000;
+            }
+            break;
+        default: 
+            return token_error(YY_ERROR_VALUE);
+    }
+
+    errno = 0;
+    time_t val_secs =  timegm(&stm);
+
+    if (errno != 0)
+        return token_error(YY_ERROR_VALUE);
+
+    return token_datetime((uint64_t) val_secs * 1000 + ms);
 }
 
-static yy_token_t func_dateadd(yy_token_t date, yy_token_t value, yy_token_t part) {
-    UNUSED(date);
-    UNUSED(part);
-    UNUSED(value);
-    return (yy_token_t){0};
+static yy_token_t func_dateset(yy_token_t date, yy_token_t value, yy_token_t part)
+{
+    if (date.type != YY_TOKEN_DATETIME)
+        return token_error(YY_ERROR_VALUE);
+
+    if (value.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    if (part.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    time_t time = (time_t)(date.datetime_val / 1000UL);
+    long ms = (long)(date.datetime_val % 1000);
+    int val = (int) value.number_val;
+    struct tm stm = {0};
+
+    gmtime_r(&time, &stm);
+
+    switch((int) part.number_val)
+    {
+        case 0: stm.tm_year = val - 1900; break;
+        case 1: stm.tm_mon  = val - 1; break;
+        case 2: stm.tm_mday = val; break;
+        case 3: stm.tm_hour = val; break;
+        case 4: stm.tm_min  = val; break;
+        case 5: stm.tm_sec  = val; break;
+        case 6: 
+            stm.tm_sec += val / 1000;
+            ms = val % 1000;
+            if (ms < 0) {
+                stm.tm_sec--;
+                ms += 1000;
+            }
+            break;
+        default: 
+            return token_error(YY_ERROR_VALUE);
+    }
+
+    errno = 0;
+    time_t val_secs =  timegm(&stm);
+
+    if (errno != 0)
+        return token_error(YY_ERROR_VALUE);
+
+    return token_datetime((uint64_t) val_secs * 1000 + ms);
 }
 
-static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part) {
-    UNUSED(date);
-    UNUSED(part);
-    return (yy_token_t){0};
+static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part)
+{
+    if (date.type != YY_TOKEN_DATETIME)
+        return token_error(YY_ERROR_VALUE);
+
+    if (part.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    time_t time = (time_t)(date.datetime_val / 1000UL);
+    struct tm stm = {0};
+
+    gmtime_r(&time, &stm);
+
+    switch((int) part.number_val)
+    {
+        case 0: stm.tm_year = 70; fallthrough;
+        case 1: stm.tm_mon  =  0; fallthrough;
+        case 2: stm.tm_mday =  1; fallthrough;
+        case 3: stm.tm_hour =  0; fallthrough;
+        case 4: stm.tm_min  =  0; fallthrough;
+        case 5: stm.tm_sec  =  0; fallthrough;
+        case 6: break;
+        default: 
+            return token_error(YY_ERROR_VALUE);
+    }
+
+    errno = 0;
+    time_t val_secs =  timegm(&stm);
+
+    if (errno != 0)
+        return token_error(YY_ERROR_VALUE);
+
+    return token_datetime((uint64_t) val_secs * 1000);
 }
+
+// --- Functions returning a string
 
 static yy_token_t func_trim(yy_token_t str) {
     UNUSED(str);
@@ -2124,11 +2253,6 @@ static yy_token_t func_upper(yy_token_t str) {
     return (yy_token_t){0};
 }
 
-static yy_token_t func_length(yy_token_t str) {
-    UNUSED(str);
-    return (yy_token_t){0};
-}
-
 static yy_token_t func_concat(yy_token_t str1, yy_token_t str2) {
     UNUSED(str1);
     UNUSED(str2);
@@ -2140,6 +2264,42 @@ static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len) 
     UNUSED(start);
     UNUSED(len);
     return (yy_token_t){0};
+}
+
+// --- Functions returning a number
+
+static yy_token_t func_length(yy_token_t str)
+{
+    if (str.type != YY_TOKEN_STRING)
+        return token_error(YY_ERROR_VALUE);
+
+    return token_number(str.str_val.len);
+}
+
+static yy_token_t func_datepart(yy_token_t date, yy_token_t part)
+{
+    if (date.type != YY_TOKEN_DATETIME)
+        return token_error(YY_ERROR_VALUE);
+
+    if (part.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    time_t time = (time_t)(date.datetime_val / 1000UL);
+    struct tm stm = {0};
+
+    gmtime_r(&time, &stm);
+
+    switch((int) part.number_val)
+    {
+        case 0: return token_number(1900 + stm.tm_year);
+        case 1: return token_number(stm.tm_mon + 1);
+        case 2: return token_number(stm.tm_mday);
+        case 3: return token_number(stm.tm_hour);
+        case 4: return token_number(stm.tm_min);
+        case 5: return token_number(stm.tm_sec);
+        case 6: return token_number(date.datetime_val % 1000UL);
+        default: return token_error(YY_ERROR_VALUE);
+    }
 }
 
 static yy_token_t func_abs(yy_token_t x)
@@ -2232,46 +2392,6 @@ static yy_token_t func_log(yy_token_t x)
     return x;
 }
 
-static yy_token_t func_max(yy_token_t x, yy_token_t y)
-{
-    if (x.type != y.type)
-        return token_error(YY_ERROR_VALUE);
-
-    if (x.type == YY_TOKEN_NUMBER)
-    {
-        double val = fmax(x.number_val, y.number_val);
-        return token_number(val);
-    }
-
-    if (x.type == YY_TOKEN_DATETIME)
-    {
-        uint64_t val = MAX(x.datetime_val, y.datetime_val);
-        return token_datetime(val);
-    }
-
-    return token_error(YY_ERROR_VALUE);
-}
-
-static yy_token_t func_min(yy_token_t x, yy_token_t y)
-{
-    if (x.type != y.type)
-        return token_error(YY_ERROR_VALUE);
-
-    if (x.type == YY_TOKEN_NUMBER)
-    {
-        double val = fmin(x.number_val, y.number_val);
-        return token_number(val);
-    }
-
-    if (x.type == YY_TOKEN_DATETIME)
-    {
-        uint64_t val = MIN(x.datetime_val, y.datetime_val);
-        return token_datetime(val);
-    }
-
-    return token_error(YY_ERROR_VALUE);
-}
-
 static yy_token_t func_sqrt(yy_token_t x)
 {
     if (x.type != YY_TOKEN_NUMBER)
@@ -2313,6 +2433,32 @@ static yy_token_t func_ident(yy_token_t x)
     return x;
 }
 
+static yy_token_t func_addition(yy_token_t x, yy_token_t y)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    if (y.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    double val = x.number_val + y.number_val;
+
+    return token_number(val);
+}
+
+static yy_token_t func_subtraction(yy_token_t x, yy_token_t y)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    if (y.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    double val = x.number_val - y.number_val;
+
+    return token_number(val);
+}
+
 static yy_token_t func_mult(yy_token_t x, yy_token_t y)
 {
     if (x.type != YY_TOKEN_NUMBER)
@@ -2352,31 +2498,7 @@ static yy_token_t func_mod(yy_token_t x, yy_token_t y)
     return token_number(val);
 }
 
-static yy_token_t func_addition(yy_token_t x, yy_token_t y)
-{
-    if (x.type != YY_TOKEN_NUMBER)
-        return token_error(YY_ERROR_VALUE);
-
-    if (y.type != YY_TOKEN_NUMBER)
-        return token_error(YY_ERROR_VALUE);
-
-    double val = x.number_val + y.number_val;
-
-    return token_number(val);
-}
-
-static yy_token_t func_subtraction(yy_token_t x, yy_token_t y)
-{
-    if (x.type != YY_TOKEN_NUMBER)
-        return token_error(YY_ERROR_VALUE);
-
-    if (y.type != YY_TOKEN_NUMBER)
-        return token_error(YY_ERROR_VALUE);
-
-    double val = x.number_val - y.number_val;
-
-    return token_number(val);
-}
+// --- Functions returning a boolean
 
 static yy_token_t func_not(yy_token_t x) {
     UNUSED(x);
@@ -2429,4 +2551,46 @@ static yy_token_t func_or(yy_token_t x, yy_token_t y) {
     UNUSED(x);
     UNUSED(y);
     return (yy_token_t){0};
+}
+
+// --- Functions whose return type depends on parameters
+
+static yy_token_t func_max(yy_token_t x, yy_token_t y)
+{
+    if (x.type != y.type)
+        return token_error(YY_ERROR_VALUE);
+
+    if (x.type == YY_TOKEN_NUMBER)
+    {
+        double val = fmax(x.number_val, y.number_val);
+        return token_number(val);
+    }
+
+    if (x.type == YY_TOKEN_DATETIME)
+    {
+        uint64_t val = MAX(x.datetime_val, y.datetime_val);
+        return token_datetime(val);
+    }
+
+    return token_error(YY_ERROR_VALUE);
+}
+
+static yy_token_t func_min(yy_token_t x, yy_token_t y)
+{
+    if (x.type != y.type)
+        return token_error(YY_ERROR_VALUE);
+
+    if (x.type == YY_TOKEN_NUMBER)
+    {
+        double val = fmin(x.number_val, y.number_val);
+        return token_number(val);
+    }
+
+    if (x.type == YY_TOKEN_DATETIME)
+    {
+        uint64_t val = MIN(x.datetime_val, y.datetime_val);
+        return token_datetime(val);
+    }
+
+    return token_error(YY_ERROR_VALUE);
 }
