@@ -28,24 +28,6 @@ SOFTWARE.
 #ifndef EXPR_H
 #define EXPR_H
 
-/**
- * Operators:
- * 
- * @see https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B
- * 
- *    Precedence Type                 Symbols            Associativity
- *    ----------------------------------------------------------------
- *         1     Grouping             ()                 left-to-right 
- *         2     Power                ^                  left-to-right (like octave)
- *         3     Not, plus minus      !, +, -            right-to-left 
- *         4     Prod, div, mod       *, /, %            left-to-right 
- *         5     Add, subtract        +, -               left-to-right 
- *         6     comparison           <, <=, >, >=       left-to-right
- *         7     equal                ==, !=             left-to-right
- *         8     and                  &&                 left-to-right
- *         9     or                   ||                 left-to-right
- */
-
 #include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
@@ -158,8 +140,8 @@ yy_token_t yy_parse(const char *begin, const char *end);
 /**
  * Compile an expression.
  * 
- * Parse full content (^.*$).
- * 
+ * @see https://github.com/torrentg/expr
+ *
  * In the generic case, yy_compile(), we try to parse it in the following order:
  *   number, datetime, string, bool
  * 
@@ -191,13 +173,5 @@ yy_retcode_e yy_compile(const char *begin, const char *end, yy_stack_t *stack, c
  * @return Result as token, can be an error (see yy_token_t.type).
  */
 yy_token_t yy_eval(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
-
-/**
- * Returns the textual description of the error code.
- * 
- * @param[in] errnum Code error.
- * @return Textual description.
- */
-const char * yy_strerror(yy_retcode_e errnum);
 
 #endif

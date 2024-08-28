@@ -37,6 +37,7 @@ SOFTWARE.
 /**
  * @see https://www.engr.mun.ca/~theo/Misc/exp_parsing.htm
  * @see https://en.wikipedia.org/wiki/Shunting_yard_algorithm
+ * @see https://en.wikipedia.org/wiki/Operators_in_C_and_C%2B%2B
  * 
  * Guidelines:
  *   - yy_xxx() functions are public (declared in header), rest are private (static)
@@ -1581,20 +1582,7 @@ static void parse_term_datetime(yy_parser_t *parser)
 /**
  * Implements a recursive descent parser for numeric expressions.
  * 
- * Grammar:
- * 
- *    numExpr       = numTerm (numInfixOp numTerm)*
- *    numTerm       = numValue | numFunc | "(" numExpr ")" | numPrefixOp numTerm
- *    numInfixOp    = "+" | "-" | "*" | "/" | "^" | "%"
- *    numPrefixOp   = "+" | "-"
- *    numFunc       = numFunc1 | numFunc2
- *    numFunc1      = <numFuncIdentifier> "(" numExpr ")"
- *    numFunc2      = <numFuncIdentifier> "(" numExpr "," numExpr ")"
- *    numValue      = numConst | numVal | numVar
- * 
- * Exceptions:
- * 
- *    We reject 2 consecutive operators (ex: 1 + -1).
+ * See grammar in the project doc.
  */
 yy_retcode_e yy_compile_number(const char *begin, const char *end, yy_stack_t *stack, const char **err)
 {
@@ -1618,19 +1606,7 @@ yy_retcode_e yy_compile_number(const char *begin, const char *end, yy_stack_t *s
 /**
  * Implements a recursive descent parser for datetime expressions.
  * 
- * Grammar:
- * 
- *    timeTerm      = timeVal | timeVar | timeFunc
- *    timeFunc      = timeFunc0 | timeFunc2 | timeFunc3
- *    timeFunc0     = "now" "(" ")"
- *    timeFunc2     = "datetrunc" "(" timeTerm "," timePart ")"
- *    timeFunc3     = ("dateadd" | "dateset") "(" timeTerm "," numExpr "," timePart ")"
- *    timePart      = "'" ("year" | "month" | "day" | "hour" | "minute" | "second" | "millis") "'"
- *    timeVal       = quoted_string_with_time
- * 
- * Notes:
- * 
- *    Parenthesis not supported because there are not operators nor precedence to consider.
+ * See grammar in the project doc.
  */
 yy_retcode_e yy_compile_datetime(const char *begin, const char *end, yy_stack_t *stack, const char **err)
 {
@@ -1760,7 +1736,7 @@ BOOLEAN_ERROR:
  * Parse a datetime value in format ISO-8601.
  *    - format = YYYY-MM-DD[Tdd:mm:ss[.SSS[Z]]]
  *    - example = 2024-08-24T08:19:25.402Z
- *    - regex := (19[7-9][0-9]|2[0-9]{3})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])(.[0-9]{1,3})?)?
+ *    - regex := (19[7-9][0-9]|2[0-9]{3})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])(.[0-9]{1,3}Z?)?)?
  *    - range := [1970-01-01T00:00:00.000Z, 2999-12-31T23:59:59.999Z]
  *    - @see https://en.wikipedia.org/wiki/ISO_8601
  * 
