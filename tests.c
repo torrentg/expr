@@ -1238,6 +1238,53 @@ void test_funcs_datetime(void)
     check_datetrunc("2024-08-26T14:16:53.493Z", "xxx"   , NULL);
 }
 
+void test_funcs_bool(void)
+{
+    yy_token_t token = {0};
+
+    // isinf()
+    token = func_isinf(token_number(3.14));
+    TEST_CHECK(token.type == YY_TOKEN_BOOL);
+    TEST_CHECK(token.bool_val == false);
+
+    token = func_isinf(token_number(0.0/0.0));
+    TEST_CHECK(token.type == YY_TOKEN_BOOL);
+    TEST_CHECK(token.bool_val == false);
+
+    token = func_isinf(token_number(+1.0/0.0));
+    TEST_CHECK(token.type == YY_TOKEN_BOOL);
+    TEST_CHECK(token.bool_val == true);
+
+    token = func_isinf(token_number(-1.0/0.0));
+    TEST_CHECK(token.type == YY_TOKEN_BOOL);
+    TEST_CHECK(token.bool_val == true);
+
+    token = func_isinf(token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+    TEST_CHECK(token.bool_val == false);
+
+    // isnan()
+    token = func_isnan(token_number(+0.0/0.0));
+    TEST_CHECK(token.type == YY_TOKEN_BOOL);
+    TEST_CHECK(token.bool_val == true);
+
+    token = func_isnan(token_number(-0.0/0.0));
+    TEST_CHECK(token.type == YY_TOKEN_BOOL);
+    TEST_CHECK(token.bool_val == true);
+
+    token = func_isnan(token_number(1.0/0.0));
+    TEST_CHECK(token.type == YY_TOKEN_BOOL);
+    TEST_CHECK(token.bool_val == false);
+
+    token = func_isnan(token_number(1.0));
+    TEST_CHECK(token.type == YY_TOKEN_BOOL);
+    TEST_CHECK(token.bool_val == false);
+
+    token = func_isnan(token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+    TEST_CHECK(token.bool_val == false);
+}
+
 TEST_LIST = {
     { "sizeof",                       test_sizeof },
     { "yy_parse_number_ok",           test_parse_number_ok },
@@ -1256,5 +1303,6 @@ TEST_LIST = {
     { "yy_compile_number",            test_compile_number },
     { "funcs_number",                 test_funcs_number },
     { "funcs_datetime",               test_funcs_datetime },
+    { "funcs_bool",                   test_funcs_bool },
     { NULL, NULL }
 };

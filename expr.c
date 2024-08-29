@@ -64,6 +64,14 @@ SOFTWARE.
     # define fallthrough   do {} while (0)  /* fallthrough */
 #endif
 
+#ifndef NAN
+    #define NAN (0.0/0.0)
+#endif
+
+#ifndef INFINITY
+    #define INFINITY (1.0 /0.0)
+#endif
+
 #define MIN(a,b) (((a)<(b))?(a):(b))
 #define MAX(a,b) (((a)>(b))?(a):(b))
 
@@ -99,6 +107,8 @@ typedef enum yy_symbol_e
     YY_SYMBOL_VARIABLE,             //!< ${x}
     YY_SYMBOL_CONST_E,              //!< E
     YY_SYMBOL_CONST_PI,             //!< PI
+    YY_SYMBOL_CONST_INF,            //!< Inf
+    YY_SYMBOL_CONST_NAN,            //!< NaN
     YY_SYMBOL_PAREN_LEFT,           //!< (
     YY_SYMBOL_PAREN_RIGHT,          //!< )
     YY_SYMBOL_COMMA,                //!< ,
@@ -134,6 +144,8 @@ typedef enum yy_symbol_e
     YY_SYMBOL_CEIL,                 //!< ceil
     YY_SYMBOL_FLOOR,                //!< floor
     YY_SYMBOL_NOW,                  //!< now
+    YY_SYMBOL_ISINF,                //!< isinf
+    YY_SYMBOL_ISNAN,                //!< isnan
     YY_SYMBOL_DATEPART,             //!< datepart
     YY_SYMBOL_DATEADD,              //!< dateadd
     YY_SYMBOL_DATESET,              //!< dateset
@@ -212,6 +224,8 @@ static yy_token_t func_subtraction(yy_token_t x, yy_token_t y);
 static yy_token_t func_mult(yy_token_t x, yy_token_t y);
 static yy_token_t func_div(yy_token_t x, yy_token_t y);
 static yy_token_t func_mod(yy_token_t x, yy_token_t y);
+static yy_token_t func_isinf(yy_token_t x);
+static yy_token_t func_isnan(yy_token_t x);
 static yy_token_t func_not(yy_token_t x);
 static yy_token_t func_lt(yy_token_t x, yy_token_t y);
 static yy_token_t func_le(yy_token_t x, yy_token_t y);
@@ -230,6 +244,8 @@ static const yy_identifier_t identifiers[] =
     { "E",         YY_SYMBOL_CONST_E   },
     { "FALSE",     YY_SYMBOL_FALSE     },
     { "False",     YY_SYMBOL_FALSE     },
+    { "Inf",       YY_SYMBOL_CONST_INF },
+    { "NaN",       YY_SYMBOL_CONST_NAN },
     { "PI",        YY_SYMBOL_CONST_PI  },
     { "TRUE",      YY_SYMBOL_TRUE      },
     { "True",      YY_SYMBOL_TRUE      },
@@ -244,6 +260,8 @@ static const yy_identifier_t identifiers[] =
     { "exp",       YY_SYMBOL_EXP       },
     { "false",     YY_SYMBOL_FALSE     },
     { "floor",     YY_SYMBOL_FLOOR     },
+    { "isinf",     YY_SYMBOL_ISINF     },
+    { "isnan",     YY_SYMBOL_ISNAN     },
     { "length",    YY_SYMBOL_LENGTH    },
     { "log",       YY_SYMBOL_LOG       },
     { "lower",     YY_SYMBOL_LOWER     },
@@ -271,10 +289,12 @@ static const yy_token_t symbol_to_token[] =
     [YY_SYMBOL_STRING_VAL]      = { .type = YY_TOKEN_STRING   }, 
     [YY_SYMBOL_VARIABLE]        = { .type = YY_TOKEN_VARIABLE }, 
 
-    [YY_SYMBOL_TRUE]            = { .type = YY_TOKEN_BOOL    , .bool_val = true    },
-    [YY_SYMBOL_FALSE]           = { .type = YY_TOKEN_BOOL    , .bool_val = false   },
-    [YY_SYMBOL_CONST_E]         = { .type = YY_TOKEN_NUMBER  , .number_val = M_E   },
-    [YY_SYMBOL_CONST_PI]        = { .type = YY_TOKEN_NUMBER  , .number_val = M_PI  },
+    [YY_SYMBOL_TRUE]            = { .type = YY_TOKEN_BOOL    , .bool_val = true       },
+    [YY_SYMBOL_FALSE]           = { .type = YY_TOKEN_BOOL    , .bool_val = false      },
+    [YY_SYMBOL_CONST_E]         = { .type = YY_TOKEN_NUMBER  , .number_val = M_E      },
+    [YY_SYMBOL_CONST_PI]        = { .type = YY_TOKEN_NUMBER  , .number_val = M_PI     },
+    [YY_SYMBOL_CONST_INF]       = { .type = YY_TOKEN_NUMBER  , .number_val = INFINITY },
+    [YY_SYMBOL_CONST_NAN]       = { .type = YY_TOKEN_NUMBER  , .number_val = NAN      },
 
     // [YY_SYMBOL_PAREN_LEFT]   = { .type = YY_TOKEN_NULL     },
     // [YY_SYMBOL_PAREN_RIGHT]  = { .type = YY_TOKEN_NULL     },
@@ -297,7 +317,8 @@ static const yy_token_t symbol_to_token[] =
     [YY_SYMBOL_DISTINCT_OP]     = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_ne         , 2, 7 } },
     [YY_SYMBOL_AND_OP]          = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_and        , 2, 8 } },
     [YY_SYMBOL_OR_OP]           = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_or         , 2, 9 } },
-
+    [YY_SYMBOL_ISINF]           = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_isinf      , 1 } },
+    [YY_SYMBOL_ISNAN]           = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_isnan      , 1 } },
     [YY_SYMBOL_ABS]             = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_abs        , 1 } },
     [YY_SYMBOL_MODULO]          = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_mod        , 2 } },
     [YY_SYMBOL_POWER]           = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_pow        , 2 } },
@@ -1372,6 +1393,8 @@ static void parse_term_number(yy_parser_t *parser)
     {
         case YY_SYMBOL_CONST_E:
         case YY_SYMBOL_CONST_PI:
+        case YY_SYMBOL_CONST_INF:
+        case YY_SYMBOL_CONST_NAN:
         case YY_SYMBOL_NUMBER_VAL:
         case YY_SYMBOL_VARIABLE:
             consume(parser);
@@ -2283,9 +2306,7 @@ static yy_token_t func_abs(yy_token_t x)
     if (x.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
-    x.number_val = fabs(x.number_val);
-
-    return x;
+    return token_number(fabs(x.number_val));
 }
 
 static yy_token_t func_ceil(yy_token_t x)
@@ -2293,9 +2314,7 @@ static yy_token_t func_ceil(yy_token_t x)
     if (x.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
-    x.number_val = ceil(x.number_val);
-
-    return x;
+    return token_number(ceil(x.number_val));
 }
 
 static yy_token_t func_floor(yy_token_t x)
@@ -2303,9 +2322,7 @@ static yy_token_t func_floor(yy_token_t x)
     if (x.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
-    x.number_val = floor(x.number_val);
-
-    return x;
+    return token_number(floor(x.number_val));
 }
 
 static yy_token_t func_trunc(yy_token_t x)
@@ -2313,9 +2330,7 @@ static yy_token_t func_trunc(yy_token_t x)
     if (x.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
-    x.number_val = trunc(x.number_val);
-
-    return x;
+    return token_number(trunc(x.number_val));
 }
 
 static yy_token_t func_sin(yy_token_t x)
@@ -2323,9 +2338,7 @@ static yy_token_t func_sin(yy_token_t x)
     if (x.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
-    x.number_val = sin(x.number_val);
-
-    return x;
+    return token_number(sin(x.number_val));
 }
 
 static yy_token_t func_cos(yy_token_t x)
@@ -2333,9 +2346,7 @@ static yy_token_t func_cos(yy_token_t x)
     if (x.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
-    x.number_val = cos(x.number_val);
-
-    return x;
+    return token_number(cos(x.number_val));
 }
 
 static yy_token_t func_tan(yy_token_t x)
@@ -2343,9 +2354,7 @@ static yy_token_t func_tan(yy_token_t x)
     if (x.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
-    x.number_val = tan(x.number_val);
-
-    return x;
+    return token_number(tan(x.number_val));
 }
 
 static yy_token_t func_exp(yy_token_t x)
@@ -2353,9 +2362,7 @@ static yy_token_t func_exp(yy_token_t x)
     if (x.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
-    x.number_val = exp(x.number_val);
-
-    return x;
+    return token_number(exp(x.number_val));
 }
 
 static yy_token_t func_log(yy_token_t x)
@@ -2363,9 +2370,7 @@ static yy_token_t func_log(yy_token_t x)
     if (x.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
-    x.number_val = log(x.number_val);
-
-    return x;
+    return token_number(log(x.number_val));
 }
 
 static yy_token_t func_sqrt(yy_token_t x)
@@ -2373,9 +2378,7 @@ static yy_token_t func_sqrt(yy_token_t x)
     if (x.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
-    x.number_val = sqrt(x.number_val);
-
-    return x;
+    return token_number(sqrt(x.number_val));
 }
 
 static yy_token_t func_pow(yy_token_t x, yy_token_t y)
@@ -2396,9 +2399,7 @@ static yy_token_t func_minus(yy_token_t x)
     if (x.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
-    x.number_val *= -1;
-
-    return x;
+    return token_number(-x.number_val);
 }
 
 static yy_token_t func_ident(yy_token_t x)
@@ -2409,6 +2410,22 @@ static yy_token_t func_ident(yy_token_t x)
     return x;
 }
 
+static yy_token_t func_isinf(yy_token_t x)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    return token_bool(isinf(x.number_val));
+}
+
+static yy_token_t func_isnan(yy_token_t x)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    return token_bool(isnan(x.number_val));
+}
+
 static yy_token_t func_addition(yy_token_t x, yy_token_t y)
 {
     if (x.type != YY_TOKEN_NUMBER)
@@ -2417,9 +2434,7 @@ static yy_token_t func_addition(yy_token_t x, yy_token_t y)
     if (y.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
-    double val = x.number_val + y.number_val;
-
-    return token_number(val);
+    return token_number(x.number_val + y.number_val);
 }
 
 static yy_token_t func_subtraction(yy_token_t x, yy_token_t y)
@@ -2430,9 +2445,7 @@ static yy_token_t func_subtraction(yy_token_t x, yy_token_t y)
     if (y.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
-    double val = x.number_val - y.number_val;
-
-    return token_number(val);
+    return token_number(x.number_val - y.number_val);
 }
 
 static yy_token_t func_mult(yy_token_t x, yy_token_t y)
@@ -2443,9 +2456,7 @@ static yy_token_t func_mult(yy_token_t x, yy_token_t y)
     if (y.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
-    double val = x.number_val * y.number_val;
-
-    return token_number(val);
+    return token_number(x.number_val * y.number_val);
 }
 
 static yy_token_t func_div(yy_token_t x, yy_token_t y)
@@ -2456,9 +2467,7 @@ static yy_token_t func_div(yy_token_t x, yy_token_t y)
     if (y.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
-    double val = x.number_val / y.number_val;
-
-    return token_number(val);
+    return token_number(x.number_val / y.number_val);
 }
 
 static yy_token_t func_mod(yy_token_t x, yy_token_t y)
@@ -2531,6 +2540,35 @@ static yy_token_t func_or(yy_token_t x, yy_token_t y) {
 
 // --- Functions whose return type depends on parameters
 
+static yy_token_t func_min(yy_token_t x, yy_token_t y)
+{
+    if (x.type != y.type)
+        return token_error(YY_ERROR_VALUE);
+
+    if (x.type == YY_TOKEN_NUMBER)
+    {
+        double val = fmin(x.number_val, y.number_val);
+        return token_number(val);
+    }
+
+    if (x.type == YY_TOKEN_DATETIME)
+    {
+        uint64_t val = MIN(x.datetime_val, y.datetime_val);
+        return token_datetime(val);
+    }
+
+    if (x.type == YY_TOKEN_STRING)
+    {
+        size_t len = MIN(x.str_val.len, y.str_val.len);
+        if (strncmp(x.str_val.ptr, y.str_val.ptr, len) < 0)
+            return x;
+        else
+            return y;
+    }
+
+    return token_error(YY_ERROR_VALUE);
+}
+
 static yy_token_t func_max(yy_token_t x, yy_token_t y)
 {
     if (x.type != y.type)
@@ -2548,24 +2586,13 @@ static yy_token_t func_max(yy_token_t x, yy_token_t y)
         return token_datetime(val);
     }
 
-    return token_error(YY_ERROR_VALUE);
-}
-
-static yy_token_t func_min(yy_token_t x, yy_token_t y)
-{
-    if (x.type != y.type)
-        return token_error(YY_ERROR_VALUE);
-
-    if (x.type == YY_TOKEN_NUMBER)
+    if (x.type == YY_TOKEN_STRING)
     {
-        double val = fmin(x.number_val, y.number_val);
-        return token_number(val);
-    }
-
-    if (x.type == YY_TOKEN_DATETIME)
-    {
-        uint64_t val = MIN(x.datetime_val, y.datetime_val);
-        return token_datetime(val);
+        size_t len = MIN(x.str_val.len, y.str_val.len);
+        if (strncmp(x.str_val.ptr, y.str_val.ptr, len) < 0)
+            return y;
+        else
+            return x;
     }
 
     return token_error(YY_ERROR_VALUE);

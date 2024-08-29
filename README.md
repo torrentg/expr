@@ -133,14 +133,18 @@ boolFunc     = <see list below>
 | boolean  | `!`          | (boolExpr)                    | Negate                                   |
 | boolean  | `&&`         | (boolExpr, boolExpr)          | And                                      |
 | boolean  | `\|\|`       | (boolExpr, boolExpr)          | Or                                       |
-| boolean  | `<`          | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr)   | Less-than |
-| boolean  | `<=`         | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr)   | Less-than-or-equal |
-| boolean  | `>`          | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr)   | Greater-than       |
+| boolean  | `<`          | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr)   | Less-than             |
+| boolean  | `<=`         | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr)   | Less-than-or-equal    |
+| boolean  | `>`          | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr)   | Greater-than          |
 | boolean  | `>=`         | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr)   | Greater-than-or-equal |
 | boolean  | `==`         | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr) <br/> (boolExpr, boolExpr)  | Equal-to           |
 | boolean  | `!=`         | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr) <br/> (boolExpr, boolExpr)  | Not-equal-to       |
+| boolean  | `isinf`      | (numExpr)                     | Checks if a number is &plusmn; infinite  |
+| boolean  | `isnan`      | (numExpr)                     | Checks if a number is a NaN              |
 
 __Operators precedence__
+
+Expr implements the [standard](https://en.cppreference.com/w/c/language/operator_precedence) operators precedence
 
 | Precedence  | Type             | Symbols      | Associativity  |
 |:----------: | ---------------- | -------------| :------------- |
