@@ -94,49 +94,72 @@ const char * symbol_to_str(yy_symbol_e type)
     }
 }
 
+const char * error_to_str(yy_error_e err)
+{
+    switch (err)
+    {
+        case YY_ERROR_REF: return "#REF";
+        case YY_ERROR_MEM: return "#MEM";
+        case YY_ERROR_EVAL: return "#EVAL";
+        case YY_ERROR_VALUE: return "#VALUE";
+        default: return "#???";
+    }
+}
+
 const char * get_function_name(void (*func)(void))
 {
     return symbol_to_str(get_function_symbol(func));
+}
+
+void print_token(yy_token_t token)
+{
+    char buf[128] = {0};
+
+    switch(token.type)
+    {
+        case YY_TOKEN_NULL:
+            printf("NULL");
+            break;
+        case YY_TOKEN_BOOL:
+            printf("%s", (token.bool_val ? "true" : "false"));
+            break;
+        case YY_TOKEN_NUMBER:
+            printf("%g", token.number_val);
+            break;
+        case YY_TOKEN_DATETIME:
+            printf("%s", datetime_to_str(token.datetime_val, buf));
+            break;
+        case YY_TOKEN_STRING:
+            printf("%.*s", token.str_val.len, token.str_val.ptr);
+            break;
+        case YY_TOKEN_VARIABLE:
+            printf("%.*s", token.variable.len, token.variable.ptr);
+            break;
+        case YY_TOKEN_FUNCTION:
+            printf("%s", get_function_name(token.function.ptr));
+            break;
+        case YY_TOKEN_ERROR:
+            printf("%s", error_to_str(token.error));
+            break;
+        default:
+            printf("UNKNOW");
+    }
 }
 
 void print_stack(const yy_stack_t *stack)
 {
     for (size_t i = 0; i < stack->len; i++)
     {
-        const yy_token_t token = stack->data[i];
-
-        switch(token.type)
-        {
-            case YY_TOKEN_NULL:
-                printf("NULL");
-                break;
-            case YY_TOKEN_BOOL:
-                printf("%s", (token.bool_val ? "true" : "false"));
-                break;
-            case YY_TOKEN_NUMBER:
-                printf("%g", token.number_val);
-                break;
-            case YY_TOKEN_DATETIME:
-                printf("%lu", token.datetime_val);
-                break;
-            case YY_TOKEN_STRING:
-                printf("%.*s", token.str_val.len, token.str_val.ptr);
-                break;
-            case YY_TOKEN_VARIABLE:
-                printf("%.*s", token.variable.len, token.variable.ptr);
-                break;
-            case YY_TOKEN_FUNCTION:
-                printf("%s", get_function_name(token.function.ptr));
-                break;
-            case YY_TOKEN_ERROR:
-                printf("ERROR");
-                break;
-            default:
-                assert(false);
-        }
-
+        print_token(stack->data[i]);
         printf(" ");
     }
+
+    yy_token_t data[128] = {0};
+    yy_stack_t aux = {.data = data, .len = 0, .reserved = sizeof(data)/sizeof(data[0])};
+    yy_token_t result = yy_eval(stack, &aux, NULL, NULL);
+
+    printf( " = ");
+    print_token(result);
 }
 
 void check_parse_number_ok(const char *str, double expected_val)
@@ -325,6 +348,32 @@ void check_compile_number_ko(const char *str)
     yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
     yy_retcode_e rc = yy_compile_number(str, str + strlen(str), &stack, NULL);
+
+    TEST_CHECK(rc != YY_OK);
+    TEST_MSG("Case='%s', error=failed", str);
+}
+
+void check_compile_datetime_ok(const char *str)
+{
+    yy_token_t data[64] = {0};
+    yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
+
+    yy_retcode_e rc = yy_compile_datetime(str, str + strlen(str), &stack, NULL);
+
+    TEST_CHECK(rc == YY_OK);
+    TEST_MSG("Case='%s', error=unexpected-rc, rc=%d", str, rc);
+
+    printf("%s --> ", str);
+    print_stack(&stack);
+    printf("\n");
+}
+
+void check_compile_datetime_ko(const char *str)
+{
+    yy_token_t data[64] = {0};
+    yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
+
+    yy_retcode_e rc = yy_compile_datetime(str, str + strlen(str), &stack, NULL);
 
     TEST_CHECK(rc != YY_OK);
     TEST_MSG("Case='%s', error=failed", str);
@@ -928,6 +977,17 @@ void test_compile_number(void)
     check_compile_number_ko("2 * -1"); // two consecutive operators
 }
 
+void test_compile_datetime(void)
+{
+    check_compile_datetime_ok("now()");
+    check_compile_datetime_ok("\"2024-08-30T06:16:34.123Z\"");
+    check_compile_datetime_ok("datetrunc(now(), \"day\")");
+    check_compile_datetime_ok("dateadd(\"2024-08-30T06:16:34.123Z\", 3, \"month\")");
+    check_compile_datetime_ok("dateset(\"2024-08-30T06:16:34.123Z\", 14, \"hour\")");
+    check_compile_datetime_ok("min(\"2023-08-30T06:16:34.123Z\", now())");
+    check_compile_datetime_ok("max(\"2023-08-30T06:16:34.123Z\", now())");
+}
+
 void test_sizeof(void)
 {
     TEST_CHECK(sizeof(uint64_t) == 8);
@@ -1164,6 +1224,32 @@ void test_funcs_number(void)
     TEST_CHECK(token.type == YY_TOKEN_ERROR);
     token = func_mod(token_number(2), token_bool(true));
     TEST_CHECK(token.type == YY_TOKEN_ERROR);
+
+    // min()
+    token = func_min(token_number(7), token_number(5));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 5.0);
+    token = func_min(token_number(5), token_number(7));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 5.0);
+    token = func_min(token_number(5), token_number(5));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 5.0);
+    token = func_min(token_bool(true), token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+
+    // max()
+    token = func_max(token_number(7), token_number(5));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 7.0);
+    token = func_max(token_number(5), token_number(7));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 7.0);
+    token = func_max(token_number(5), token_number(5));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 5.0);
+    token = func_max(token_bool(true), token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
 }
 
 void test_funcs_datetime(void)
@@ -1261,7 +1347,6 @@ void test_funcs_bool(void)
 
     token = func_isinf(token_bool(true));
     TEST_CHECK(token.type == YY_TOKEN_ERROR);
-    TEST_CHECK(token.bool_val == false);
 
     // isnan()
     token = func_isnan(token_number(+0.0/0.0));
@@ -1282,7 +1367,6 @@ void test_funcs_bool(void)
 
     token = func_isnan(token_bool(true));
     TEST_CHECK(token.type == YY_TOKEN_ERROR);
-    TEST_CHECK(token.bool_val == false);
 }
 
 TEST_LIST = {
@@ -1301,6 +1385,7 @@ TEST_LIST = {
     { "read_symbol_ko",               test_read_symbol_ko },
     { "skip_spaces",                  test_skip_spaces },
     { "yy_compile_number",            test_compile_number },
+    { "yy_compile_datetime",          test_compile_datetime },
     { "funcs_number",                 test_funcs_number },
     { "funcs_datetime",               test_funcs_datetime },
     { "funcs_bool",                   test_funcs_bool },

@@ -1154,7 +1154,7 @@ static void push_to_stack(yy_parser_t *parser, const yy_token_t *token)
 
     if (unlikely(stack->len + parser->operators_len >= stack->reserved)) {
         assert(stack->len + parser->operators_len == stack->reserved);
-        parser->error = YY_ERROR_MEM;
+        parser->error = YY_ERROR_MEMORY;
         return;
     }
 
@@ -1170,7 +1170,7 @@ static void push_to_operators(yy_parser_t *parser, const yy_token_t *token)
 
     if (unlikely(stack->len + parser->operators_len >= stack->reserved)) {
         assert(stack->len + parser->operators_len == stack->reserved);
-        parser->error = YY_ERROR_MEM;
+        parser->error = YY_ERROR_MEMORY;
         return;
     }
 
@@ -1370,7 +1370,7 @@ static void init_parser(yy_parser_t *parser, const char *begin, const char *end,
     parser->operators_len = 0;
     parser->curr_symbol = (yy_symbol_t){0};
     parser->prev_symbol = (yy_symbol_t){0};
-    parser->error = (stack && stack->reserved ? YY_OK : YY_ERROR_MEM);
+    parser->error = (stack && stack->reserved ? YY_OK : YY_ERROR_MEMORY);
 
     consume(parser);
 }
@@ -1597,6 +1597,15 @@ static void parse_term_datetime(yy_parser_t *parser)
             parse_datepart(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
+        case YY_SYMBOL_MIN: 
+        case YY_SYMBOL_MAX: 
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_term_datetime(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_term_datetime(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
         default:
             parser->error = YY_ERROR_SYNTAX;
     }
@@ -1648,6 +1657,112 @@ yy_retcode_e yy_compile_datetime(const char *begin, const char *end, yy_stack_t 
         *err = parser.curr;
 
     return parser.error;
+}
+
+INLINE
+static yy_token_t eval_func(yy_stack_t *stack, yy_func_t func)
+{
+    if (!func.ptr) 
+        return token_error(YY_ERROR_EVAL);
+
+    if (func.num_args == 0)
+        return ((yy_func_0) func.ptr)();
+
+    if (stack->len < func.num_args)
+        return token_error(YY_ERROR_EVAL);
+
+    yy_token_t *token1 = get(stack, 0);
+    assert(token1);
+    assert(is_token_fixed_value(token1->type));
+
+    if (func.num_args == 1)
+        return ((yy_func_1) func.ptr)(*token1);
+
+    yy_token_t *token2 = get(stack, 1);
+    assert(token2);
+    assert(is_token_fixed_value(token2->type));
+
+    if (func.num_args == 2)
+        return  ((yy_func_2) func.ptr)(*token2, *token1);
+
+    yy_token_t *token3 = get(stack, 2);
+    assert(token3);
+    assert(is_token_fixed_value(token3->type));
+
+    if (func.num_args == 3)
+        return ((yy_func_3) func.ptr)(*token3, *token2, *token1);
+
+    return token_error(YY_ERROR_EVAL);
+}
+
+/**
+ * Use stack also as memory pool.
+ */
+yy_token_t yy_eval(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data)
+{
+    if (!stack || !aux || !stack->data || !stack->len || !aux->data)
+        return token_error(YY_ERROR_EVAL);
+
+    aux->len = 0;
+
+    for (size_t i = 0; i < stack->len; i++)
+    {
+        switch (stack->data[i].type)
+        {
+            case YY_TOKEN_BOOL:
+            case YY_TOKEN_NUMBER:
+            case YY_TOKEN_DATETIME:
+            case YY_TOKEN_STRING:
+            {
+                if (aux->reserved <= aux->len)
+                    return token_error(YY_ERROR_MEM);
+
+                aux->data[aux->len++] = stack->data[i];
+                break;
+            }
+            case YY_TOKEN_VARIABLE:
+            {
+                if (aux->reserved <= aux->len)
+                    return token_error(YY_ERROR_MEM);
+
+                if (!resolve)
+                    return token_error(YY_ERROR_REF);
+
+                yy_token_t tmp = resolve(&stack->data[i].variable, data);
+                if (tmp.type == YY_TOKEN_ERROR)
+                    return tmp;
+
+                aux->data[aux->len++] = tmp;
+                break;
+            }
+            case YY_TOKEN_FUNCTION:
+            {
+                yy_token_t tmp = eval_func(aux, stack->data[i].function);
+                if (tmp.type == YY_TOKEN_ERROR)
+                    return tmp;
+
+                if (stack->data[i].function.num_args)
+                {
+                    assert(stack->data[i].function.num_args <= aux->len);
+                    aux->len -= stack->data[i].function.num_args;
+                }
+                else if (aux->reserved <= aux->len)
+                    return token_error(YY_ERROR_MEM);
+
+                aux->data[aux->len++] = tmp;
+                break;
+            }
+            case YY_TOKEN_ERROR:
+                return stack->data[i];
+            default:
+                return token_error(YY_ERROR_EVAL);
+        }
+    }
+
+    if (aux->len != 1)
+        return token_error(YY_ERROR_EVAL);
+
+    return aux->data[0];
 }
 
 yy_token_t yy_parse_number(const char *begin, const char *end)

@@ -7,6 +7,7 @@
 #include <time.h>
 #include "expr.h"
 
+// #define TE_NAT_LOG
 // #include "tinyexpr.h"
 
 /**

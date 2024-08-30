@@ -44,8 +44,7 @@ typedef enum yy_retcode_e {
     YY_ERROR_ARGS,                  //!< Invalid arguments.
     YY_ERROR_EMPTY,                 //!< Empty expression.
     YY_ERROR_SYNTAX,                //!< Syntax error.
-    YY_ERROR_EVAL,                  //!< Evaluation error.
-    YY_ERROR_MEM,                   //!< Not enough memory.
+    YY_ERROR_MEMORY,                //!< Not enough memory.
     YY_ERROR_INVALID_BOOLEAN,       //!< Invalid boolean.
     YY_ERROR_INVALID_NUMBER,        //!< Invalid number.
     YY_ERROR_INVALID_DATETIME,      //!< Invalid timestamp.
@@ -80,9 +79,8 @@ typedef enum yy_token_e {
 
 typedef enum yy_error_e {
     YY_ERROR_REF,                   //!< Variable not found.
-    YY_ERROR_NAN,                   //!< Not a number (ex: 0/0).
-    YY_ERROR_HUGE,                  //!< Numeric overflow or +inf or -inf.
-    YY_ERROR_DIV_0,                 //!< Number divided by 0.
+    YY_ERROR_MEM,                   //!< Not enough memory.
+    YY_ERROR_EVAL,                  //!< Evaluation error (ex. corrupted stack).
     YY_ERROR_VALUE,                 //!< Invalid value (ex: variable contains unexpected type).
 } yy_error_e;
 
