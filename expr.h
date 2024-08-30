@@ -38,21 +38,26 @@ SOFTWARE.
     #define PACKED     /**/
 #endif
 
-typedef enum yy_retcode_e {
+typedef enum yy_token_e {
+    YY_TOKEN_NULL,                  //!< Unassigned token.
+    YY_TOKEN_BOOL,                  //!< Bool value.
+    YY_TOKEN_NUMBER,                //!< Number value.
+    YY_TOKEN_DATETIME,              //!< Datetime value.
+    YY_TOKEN_STRING,                //!< String value.
+    YY_TOKEN_VARIABLE,              //!< Variable.
+    YY_TOKEN_FUNCTION,              //!< Function.
+    YY_TOKEN_ERROR,                 //!< Evaluation error.
+} yy_token_e;
+
+typedef enum yy_error_e {
     YY_OK,                          //!< No errors.
-    YY_ERROR,                       //!< Generic error.
-    YY_ERROR_ARGS,                  //!< Invalid arguments.
-    YY_ERROR_EMPTY,                 //!< Empty expression.
-    YY_ERROR_SYNTAX,                //!< Syntax error.
-    YY_ERROR_MEMORY,                //!< Not enough memory.
-    YY_ERROR_INVALID_BOOLEAN,       //!< Invalid boolean.
-    YY_ERROR_INVALID_NUMBER,        //!< Invalid number.
-    YY_ERROR_INVALID_DATETIME,      //!< Invalid timestamp.
-    YY_ERROR_INVALID_STRING,        //!< Invalid string.
-    YY_ERROR_INVALID_VARIABLE,      //!< Invalid variable.
-    YY_ERROR_RANGE_NUMBER,          //!< Number out-of-range.
-    YY_ERROR_RANGE_DATETIME,        //!< Timestamp out-of-range.
-} yy_retcode_e;
+    YY_ERROR,                       //!< Generic error (ex. given stack is NULL).
+    YY_ERROR_REF,                   //!< Variable not found (error returned by resolve).
+    YY_ERROR_MEM,                   //!< Not enough memory (try to increase the stack size).
+    YY_ERROR_EVAL,                  //!< Evaluation error (ex. corrupted stack).
+    YY_ERROR_VALUE,                 //!< Invalid value (ex: variable contains unexpected type).
+    YY_ERROR_SYNTAX                 //!< Syntax error (ex. unexpected parenthesis, malformated number, etc).
+} yy_error_e;
 
 typedef struct PACKED yy_str_t {
     const char *ptr;                //!< Pointer to data (not NUL-ended).
@@ -65,24 +70,6 @@ typedef struct PACKED yy_func_t {
     uint8_t precedence;             //!< Operator precedence.
     bool right_to_left;             //!< Operator associativity.
 } yy_func_t;
-
-typedef enum yy_token_e {
-    YY_TOKEN_NULL,                  //!< Unassigned token.
-    YY_TOKEN_BOOL,                  //!< Bool value.
-    YY_TOKEN_NUMBER,                //!< Number value.
-    YY_TOKEN_DATETIME,              //!< Timestamp value.
-    YY_TOKEN_STRING,                //!< String value.
-    YY_TOKEN_VARIABLE,              //!< Variable.
-    YY_TOKEN_FUNCTION,              //!< Function.
-    YY_TOKEN_ERROR,                 //!< Evaluation error.
-} yy_token_e;
-
-typedef enum yy_error_e {
-    YY_ERROR_REF,                   //!< Variable not found.
-    YY_ERROR_MEM,                   //!< Not enough memory.
-    YY_ERROR_EVAL,                  //!< Evaluation error (ex. corrupted stack).
-    YY_ERROR_VALUE,                 //!< Invalid value (ex: variable contains unexpected type).
-} yy_error_e;
 
 typedef struct yy_token_t {
     union PACKED
@@ -154,11 +141,11 @@ yy_token_t yy_parse(const char *begin, const char *end);
  * @return YY_OK on success, 
  *         otherwise error (in this case, if err is not NULL, err points to the error location).
  */
-yy_retcode_e yy_compile_number(const char *begin, const char *end, yy_stack_t *stack, const char **err);
-yy_retcode_e yy_compile_datetime(const char *begin, const char *end, yy_stack_t *stack, const char **err);
-yy_retcode_e yy_compile_string(const char *begin, const char *end, yy_stack_t *stack, const char **err);
-yy_retcode_e yy_compile_bool(const char *begin, const char *end, yy_stack_t *stack, const char **err);
-yy_retcode_e yy_compile(const char *begin, const char *end, yy_stack_t *stack, const char **err);
+yy_error_e yy_compile_number(const char *begin, const char *end, yy_stack_t *stack, const char **err);
+yy_error_e yy_compile_datetime(const char *begin, const char *end, yy_stack_t *stack, const char **err);
+yy_error_e yy_compile_string(const char *begin, const char *end, yy_stack_t *stack, const char **err);
+yy_error_e yy_compile_bool(const char *begin, const char *end, yy_stack_t *stack, const char **err);
+yy_error_e yy_compile(const char *begin, const char *end, yy_stack_t *stack, const char **err);
 
 /**
  * Evaluate a rpn stack.

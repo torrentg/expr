@@ -181,7 +181,7 @@ typedef struct yy_parser_t
     uint32_t operators_len;         //!< Length of the operators stack.
     yy_symbol_t curr_symbol;        //!< Current symbol.
     yy_symbol_t prev_symbol;        //!< Previous symbol.
-    yy_retcode_e error;             //!< Error code (YY_OK means no error), curr points to error location.
+    yy_error_e error;               //!< Error code (YY_OK means no error), curr points to error location.
 } yy_parser_t;
 
 typedef struct yy_identifier_t
@@ -498,10 +498,10 @@ SKIP_SPACES_START:
  * @param[out] symbol Parsed symbol.
  * 
  * @return  YY_OK: Success.
- *          YY_ERROR_INVALID_NUMBER: Invalid number.
- *          YY_ERROR_RANGE_NUMBER: Number out of range
+ *          YY_ERROR_SYNTAX: Invalid number.
+ *          YY_ERROR_VALUE: Number out of range.
  */
-static yy_retcode_e read_symbol_number(const char *begin, const char *end, yy_symbol_t *symbol)
+static yy_error_e read_symbol_number(const char *begin, const char *end, yy_symbol_t *symbol)
 {
     assert(begin && end && begin <= end && symbol);
 
@@ -512,13 +512,13 @@ static yy_retcode_e read_symbol_number(const char *begin, const char *end, yy_sy
     const char *ptr = begin;
 
     if (unlikely(ptr == end))
-        return YY_ERROR_INVALID_NUMBER;
+        return YY_ERROR_SYNTAX;
 
     switch (*ptr) {
         case '0': 
             goto NUMBER_INTEGER_PART_0;
         case '1' ... '9': goto NUMBER_INTEGER_PART_NON_0;
-        default: return YY_ERROR_INVALID_NUMBER;
+        default: return YY_ERROR_SYNTAX;
     }
 
 NUMBER_INTEGER_PART_0:
@@ -527,7 +527,7 @@ NUMBER_INTEGER_PART_0:
         goto NUMBER_READ_INTEGER;
 
     switch (*ptr) {
-        case '0' ... '9': return YY_ERROR_INVALID_NUMBER;
+        case '0' ... '9': return YY_ERROR_SYNTAX;
         case '.': goto NUMBER_FRACTION_START;
         case 'E':
         case 'e': goto NUMBER_EXPONENT_START;
@@ -550,11 +550,11 @@ NUMBER_INTEGER_PART_NON_0:
 NUMBER_FRACTION_START:
 
     if (unlikely(++ptr == end))
-        return YY_ERROR_INVALID_NUMBER;
+        return YY_ERROR_SYNTAX;
 
     switch (*ptr) {
         case '0' ... '9': goto NUMBER_FRACTION_CONT;
-        default: return YY_ERROR_INVALID_NUMBER;
+        default: return YY_ERROR_SYNTAX;
     }
 
 NUMBER_FRACTION_CONT:
@@ -572,25 +572,25 @@ NUMBER_FRACTION_CONT:
 NUMBER_EXPONENT_START:
 
     if (unlikely(++ptr == end))
-        return YY_ERROR_INVALID_NUMBER;
+        return YY_ERROR_SYNTAX;
 
     switch (*ptr) {
         case '+':
         case '-': goto NUMBER_EXPONENT_NUM_START;
         case '0': goto NUMBER_EXPONENT_0;
         case '1' ... '9': goto NUMBER_EXPONENT_NUM_CONT;
-        default: return YY_ERROR_INVALID_NUMBER;
+        default: return YY_ERROR_SYNTAX;
     }
 
 NUMBER_EXPONENT_NUM_START:
 
     if (unlikely(++ptr == end))
-        return YY_ERROR_INVALID_NUMBER;
+        return YY_ERROR_SYNTAX;
 
     switch (*ptr) {
         case '0': goto NUMBER_EXPONENT_0;
         case '1' ... '9': goto NUMBER_EXPONENT_NUM_CONT;
-        default: return YY_ERROR_INVALID_NUMBER;
+        default: return YY_ERROR_SYNTAX;
     }
 
 NUMBER_EXPONENT_0:
@@ -599,7 +599,7 @@ NUMBER_EXPONENT_0:
         goto NUMBER_READ_FLOAT;
 
     switch (*ptr) {
-        case '1' ... '9': return YY_ERROR_INVALID_NUMBER;
+        case '1' ... '9': return YY_ERROR_SYNTAX;
         default: goto NUMBER_READ_FLOAT;
     }
 
@@ -619,13 +619,13 @@ NUMBER_READ_INTEGER:
     assert(ptr <= end);
 
     if ((len = ptr - begin) > 16)  // 16 = length(2^53) in base-10
-        return YY_ERROR_RANGE_NUMBER;
+        return YY_ERROR_VALUE;
 
     for (const char *aux = begin; aux < ptr; ++aux)
         int_val = int_val * 10 + (*aux - '0');
 
     if (int_val > (1LL << 53))
-        return YY_ERROR_RANGE_NUMBER;
+        return YY_ERROR_VALUE;
 
     symbol->lexeme.ptr = begin;
     symbol->lexeme.len = (uint32_t) len;
@@ -640,7 +640,7 @@ NUMBER_READ_FLOAT:
     assert(ptr <= end);
 
     if ((len = ptr - begin) >= sizeof(buf))
-        return YY_ERROR_RANGE_NUMBER;
+        return YY_ERROR_VALUE;
 
     memcpy(buf, begin, len);
     buf[len] = 0;
@@ -649,7 +649,7 @@ NUMBER_READ_FLOAT:
     number_val = strtod(buf, NULL);
 
     if (errno == ERANGE)
-        return YY_ERROR_RANGE_NUMBER;
+        return YY_ERROR_VALUE;
 
     symbol->lexeme.ptr = begin;
     symbol->lexeme.len = (uint32_t) len;
@@ -674,24 +674,24 @@ NUMBER_READ_FLOAT:
  * @param[out] symbol Parsed symbol.
  * 
  * @return  YY_OK: Success.
- *          YY_ERROR_INVALID_STRING: Invalid string.
+ *          YY_ERROR_SYNTAX: Invalid string.
  */
-static yy_retcode_e read_symbol_string(const char *begin, const char *end, yy_symbol_t *symbol)
+static yy_error_e read_symbol_string(const char *begin, const char *end, yy_symbol_t *symbol)
 {
     assert(begin && end && begin <= end && symbol);
 
     const char *ptr = begin;
 
     if (end - ptr < 2 || *ptr != '"') // no place for ""
-        return YY_ERROR_INVALID_STRING;
+        return YY_ERROR_SYNTAX;
 
 STRING_NEXT_CHAR:
 
     if (++ptr == end)
-        return YY_ERROR_INVALID_STRING;
+        return YY_ERROR_SYNTAX;
 
     switch (*ptr) {
-        case '\0': return YY_ERROR_INVALID_STRING;
+        case '\0': return YY_ERROR_SYNTAX;
         case '\\': goto STRING_ESCAPED_CHAR;
         case '"': goto STRING_END;
         default: goto STRING_NEXT_CHAR;
@@ -700,14 +700,14 @@ STRING_NEXT_CHAR:
 STRING_ESCAPED_CHAR:
 
     if (end - ptr < 3)  // no place for \x"
-        return YY_ERROR_INVALID_STRING;
+        return YY_ERROR_SYNTAX;
 
     switch (*++ptr) {
         case '"': 
         case '\\': 
         case 'n': 
         case 't': goto STRING_NEXT_CHAR;
-        default: return YY_ERROR_INVALID_STRING;
+        default: return YY_ERROR_SYNTAX;
     }
 
 STRING_END:
@@ -741,32 +741,32 @@ STRING_END:
  * @param[out] symbol Parsed symbol.
  * 
  * @return  YY_OK: Success.
- *          YY_ERROR_INVALID_VARIABLE: Invalid string.
+ *          YY_ERROR_SYNTAX: Invalid variable.
  */
-static yy_retcode_e read_symbol_variable(const char *begin, const char *end, yy_symbol_t *symbol)
+static yy_error_e read_symbol_variable(const char *begin, const char *end, yy_symbol_t *symbol)
 {
     assert(begin && end && begin <= end && symbol);
 
     const char *ptr = begin;
 
     if (end - ptr < 4 || *ptr != '$' || *++ptr != '{') // no place for ${x}
-        return YY_ERROR_INVALID_VARIABLE;
+        return YY_ERROR_SYNTAX;
 
     switch (*++ptr) {
         case 'A' ... 'Z':
         case 'a' ... 'z': goto VARIABLE_NAME;
-        default: return YY_ERROR_INVALID_VARIABLE;
+        default: return YY_ERROR_SYNTAX;
     }
 
 VARIABLE_NAME:
 
     if (++ptr == end)
-        return YY_ERROR_INVALID_VARIABLE;
+        return YY_ERROR_SYNTAX;
 
     switch (*ptr) {
         case '.': 
             if (ptr[-1] == '.') // consecutive dots are not allowed
-                return YY_ERROR_INVALID_VARIABLE;
+                return YY_ERROR_SYNTAX;
             fallthrough;
         case '0' ... '9':
         case 'A' ... 'Z':
@@ -775,10 +775,10 @@ VARIABLE_NAME:
             goto VARIABLE_NAME;
         case '}':
             if (ptr[-1] == '.') // ending dot is not allowed
-                return YY_ERROR_INVALID_VARIABLE;
+                return YY_ERROR_SYNTAX;
             goto VARIABLE_END;
         default: 
-            return YY_ERROR_INVALID_VARIABLE;
+            return YY_ERROR_SYNTAX;
     }
 
 VARIABLE_END:
@@ -822,7 +822,7 @@ VARIABLE_END:
  * @return  YY_OK: success
  *          other: error.
  */
-static yy_retcode_e read_symbol(const char *begin, const char *end, yy_symbol_t *symbol)
+static yy_error_e read_symbol(const char *begin, const char *end, yy_symbol_t *symbol)
 {
     assert(begin);
     assert(end);
@@ -1154,7 +1154,7 @@ static void push_to_stack(yy_parser_t *parser, const yy_token_t *token)
 
     if (unlikely(stack->len + parser->operators_len >= stack->reserved)) {
         assert(stack->len + parser->operators_len == stack->reserved);
-        parser->error = YY_ERROR_MEMORY;
+        parser->error = YY_ERROR_MEM;
         return;
     }
 
@@ -1170,7 +1170,7 @@ static void push_to_operators(yy_parser_t *parser, const yy_token_t *token)
 
     if (unlikely(stack->len + parser->operators_len >= stack->reserved)) {
         assert(stack->len + parser->operators_len == stack->reserved);
-        parser->error = YY_ERROR_MEMORY;
+        parser->error = YY_ERROR_MEM;
         return;
     }
 
@@ -1370,7 +1370,7 @@ static void init_parser(yy_parser_t *parser, const char *begin, const char *end,
     parser->operators_len = 0;
     parser->curr_symbol = (yy_symbol_t){0};
     parser->prev_symbol = (yy_symbol_t){0};
-    parser->error = (stack && stack->reserved ? YY_OK : YY_ERROR_MEMORY);
+    parser->error = (stack && stack->reserved ? YY_OK : YY_ERROR_MEM);
 
     consume(parser);
 }
@@ -1543,7 +1543,7 @@ static void parse_datetime_val(yy_parser_t *parser)
     yy_token_t token = yy_parse_datetime(begin, end);
 
     if (token.type != YY_TOKEN_DATETIME) {
-        parser->error = YY_ERROR_INVALID_DATETIME;
+        parser->error = YY_ERROR_SYNTAX;
         return;
     }
 
@@ -1616,10 +1616,10 @@ static void parse_term_datetime(yy_parser_t *parser)
  * 
  * See grammar in the project doc.
  */
-yy_retcode_e yy_compile_number(const char *begin, const char *end, yy_stack_t *stack, const char **err)
+yy_error_e yy_compile_number(const char *begin, const char *end, yy_stack_t *stack, const char **err)
 {
     if (!begin || !end || begin > end || !stack || !stack->data)
-        return YY_ERROR_ARGS;
+        return YY_ERROR;
 
     yy_parser_t parser;
 
@@ -1640,10 +1640,10 @@ yy_retcode_e yy_compile_number(const char *begin, const char *end, yy_stack_t *s
  * 
  * See grammar in the project doc.
  */
-yy_retcode_e yy_compile_datetime(const char *begin, const char *end, yy_stack_t *stack, const char **err)
+yy_error_e yy_compile_datetime(const char *begin, const char *end, yy_stack_t *stack, const char **err)
 {
     if (!begin || !end || begin > end || !stack || !stack->data)
-        return YY_ERROR_ARGS;
+        return YY_ERROR;
 
     yy_parser_t parser;
 
@@ -1701,7 +1701,7 @@ static yy_token_t eval_func(yy_stack_t *stack, yy_func_t func)
 yy_token_t yy_eval(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data)
 {
     if (!stack || !aux || !stack->data || !stack->len || !aux->data)
-        return token_error(YY_ERROR_EVAL);
+        return token_error(YY_ERROR);
 
     aux->len = 0;
 

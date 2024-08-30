@@ -211,7 +211,7 @@ void _check_string_ok(const char *str, size_t len, const char *expected_val)
     yy_symbol_t symbol = {0};
     size_t expected_len = strlen(expected_val);
 
-    yy_retcode_e rc = read_symbol_string(str, str + len, &symbol);
+    yy_error_e rc = read_symbol_string(str, str + len, &symbol);
 
     TEST_CHECK(rc == YY_OK);
     TEST_MSG("Case='%.*s', error=failed", (int) len, str);
@@ -227,16 +227,16 @@ void _check_string_ok(const char *str, size_t len, const char *expected_val)
     TEST_MSG("Case='%.*s', error=invalid-string-content", (int) len, str);
 }
 
-void check_string_ko(const char *str, yy_retcode_e expected_result)
+void check_string_ko(const char *str)
 {
     yy_symbol_t symbol = {0};
     size_t len = (str == NULL ? 0 : strlen(str));
     const char *end = (str == NULL ? NULL : str + len);
 
-    yy_retcode_e rc = read_symbol_string(str, end, &symbol);
+    yy_error_e rc = read_symbol_string(str, end, &symbol);
 
-    TEST_CHECK(rc == expected_result);
-    TEST_MSG("Case='%s', expected=%d, result=%d", str, expected_result, rc);
+    TEST_CHECK(rc != YY_OK);
+    TEST_MSG("Case='%s', error=non-failed", str);
 }
 
 void check_parse_boolean_ok(const char *str, bool expected_val)
@@ -266,7 +266,7 @@ void _check_read_symbol_variable_ok(const char *str, size_t len, const char *exp
     yy_symbol_t symbol = {0};
     size_t expected_len = strlen(expected_val);
 
-    yy_retcode_e rc = read_symbol_variable(str, str + len, &symbol);
+    yy_error_e rc = read_symbol_variable(str, str + len, &symbol);
 
     TEST_CHECK(rc == YY_OK);
     TEST_MSG("Case='%.*s', error=failed", (int) len, str);
@@ -280,15 +280,15 @@ void _check_read_symbol_variable_ok(const char *str, size_t len, const char *exp
     TEST_MSG("Case='%.*s', error=invalid-lexeme-len", (int) len, str);
 }
 
-void check_read_symbol_variable_ko(const char *str, yy_retcode_e expected_result)
+void check_read_symbol_variable_ko(const char *str)
 {
     yy_symbol_t symbol = {0};
     const char *end = str + (str ? strlen(str) : 0);
 
-    yy_retcode_e rc = read_symbol_variable(str, end, &symbol);
+    yy_error_e rc = read_symbol_variable(str, end, &symbol);
 
-    TEST_CHECK(rc == expected_result);
-    TEST_MSG("Case='%s', expected=%d, result=%d", str, expected_result, rc);
+    TEST_CHECK(rc != YY_OK);
+    TEST_MSG("Case='%s', error=not-failed", str);
 }
 
 void check_next_ok(const char *str, yy_symbol_e type, yy_symbol_t *symbol)
@@ -296,7 +296,7 @@ void check_next_ok(const char *str, yy_symbol_e type, yy_symbol_t *symbol)
     const char *begin = str;
     const char *end = str + strlen(str);
 
-    yy_retcode_e rc = read_symbol(begin, end, symbol);
+    yy_error_e rc = read_symbol(begin, end, symbol);
 
     TEST_CHECK(rc == YY_OK);
     TEST_MSG("Case='%s', error=failed", str);
@@ -310,7 +310,7 @@ void check_next_ko(const char *str)
     const char *end = str + strlen(str);
     yy_symbol_t symbol = {0};
 
-    yy_retcode_e rc = read_symbol(begin, end, &symbol);
+    yy_error_e rc = read_symbol(begin, end, &symbol);
 
     TEST_CHECK(rc != YY_OK);
     TEST_MSG("Case='%s', error=failed", str);
@@ -332,7 +332,7 @@ void check_compile_number_ok(const char *str)
     yy_token_t data[64] = {0};
     yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
-    yy_retcode_e rc = yy_compile_number(str, str + strlen(str), &stack, NULL);
+    yy_error_e rc = yy_compile_number(str, str + strlen(str), &stack, NULL);
 
     TEST_CHECK(rc == YY_OK);
     TEST_MSG("Case='%s', error=unexpected-rc, rc=%d", str, rc);
@@ -347,7 +347,7 @@ void check_compile_number_ko(const char *str)
     yy_token_t data[64] = {0};
     yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
-    yy_retcode_e rc = yy_compile_number(str, str + strlen(str), &stack, NULL);
+    yy_error_e rc = yy_compile_number(str, str + strlen(str), &stack, NULL);
 
     TEST_CHECK(rc != YY_OK);
     TEST_MSG("Case='%s', error=failed", str);
@@ -358,7 +358,7 @@ void check_compile_datetime_ok(const char *str)
     yy_token_t data[64] = {0};
     yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
-    yy_retcode_e rc = yy_compile_datetime(str, str + strlen(str), &stack, NULL);
+    yy_error_e rc = yy_compile_datetime(str, str + strlen(str), &stack, NULL);
 
     TEST_CHECK(rc == YY_OK);
     TEST_MSG("Case='%s', error=unexpected-rc, rc=%d", str, rc);
@@ -373,7 +373,7 @@ void check_compile_datetime_ko(const char *str)
     yy_token_t data[64] = {0};
     yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
-    yy_retcode_e rc = yy_compile_datetime(str, str + strlen(str), &stack, NULL);
+    yy_error_e rc = yy_compile_datetime(str, str + strlen(str), &stack, NULL);
 
     TEST_CHECK(rc != YY_OK);
     TEST_MSG("Case='%s', error=failed", str);
@@ -726,34 +726,34 @@ void test_string_ok(void)
 
 void test_string_ko(void)
 {
-    check_string_ko("", YY_ERROR_INVALID_STRING);
-    check_string_ko(" ", YY_ERROR_INVALID_STRING);
-    check_string_ko("a", YY_ERROR_INVALID_STRING);
-    check_string_ko(" \"abc\"", YY_ERROR_INVALID_STRING);
-    check_string_ko("\"", YY_ERROR_INVALID_STRING);
-    check_string_ko("\"non terminated str", YY_ERROR_INVALID_STRING);
+    check_string_ko("");
+    check_string_ko(" ");
+    check_string_ko("a");
+    check_string_ko(" \"abc\"");
+    check_string_ko("\"");
+    check_string_ko("\"non terminated str");
 
-    check_string_ko("\"\\\"", YY_ERROR_INVALID_STRING);
-    check_string_ko("\"\\t", YY_ERROR_INVALID_STRING);
-    check_string_ko("\"\\n", YY_ERROR_INVALID_STRING);
-    check_string_ko("\"\\\\", YY_ERROR_INVALID_STRING);
+    check_string_ko("\"\\\"");
+    check_string_ko("\"\\t");
+    check_string_ko("\"\\n");
+    check_string_ko("\"\\\\");
 
-    check_string_ko("\"abc\\\"", YY_ERROR_INVALID_STRING);
-    check_string_ko("\"abc\\t", YY_ERROR_INVALID_STRING);
-    check_string_ko("\"abc\\n", YY_ERROR_INVALID_STRING);
-    check_string_ko("\"abc\\\\", YY_ERROR_INVALID_STRING);
+    check_string_ko("\"abc\\\"");
+    check_string_ko("\"abc\\t");
+    check_string_ko("\"abc\\n");
+    check_string_ko("\"abc\\\\");
 
-    check_string_ko("\"\\\"abc", YY_ERROR_INVALID_STRING);
-    check_string_ko("\"\\tabc", YY_ERROR_INVALID_STRING);
-    check_string_ko("\"\\nabc", YY_ERROR_INVALID_STRING);
-    check_string_ko("\"\\\\abc", YY_ERROR_INVALID_STRING);
+    check_string_ko("\"\\\"abc");
+    check_string_ko("\"\\tabc");
+    check_string_ko("\"\\nabc");
+    check_string_ko("\"\\\\abc");
 
-    check_string_ko("\"abc\\xdef\"", YY_ERROR_INVALID_STRING);  // unrecognized escaped char (\x)
+    check_string_ko("\"abc\\xdef\"");  // unrecognized escaped char (\x)
 
     // 0 in-the-middle
     yy_symbol_t symbol = {0};
     char str[] = { '"', 'a', 'b', 'c', 0, 'd', 'e', 'f', '"', 0};
-    TEST_CHECK(read_symbol_string(str, str + sizeof(str) - 1, &symbol) == YY_ERROR_INVALID_STRING);
+    TEST_CHECK(read_symbol_string(str, str + sizeof(str) - 1, &symbol) == YY_ERROR_SYNTAX);
 }
 
 void test_parse_boolean_ok(void)
@@ -810,20 +810,20 @@ void test_read_symbol_variable_ok(void)
 
 void test_read_symbol_variable_ko(void)
 {
-    check_read_symbol_variable_ko("", YY_ERROR_INVALID_VARIABLE);
-    check_read_symbol_variable_ko(" ", YY_ERROR_INVALID_VARIABLE);
-    check_read_symbol_variable_ko(" ${x}", YY_ERROR_INVALID_VARIABLE);
-    check_read_symbol_variable_ko("x", YY_ERROR_INVALID_VARIABLE);
-    check_read_symbol_variable_ko("$x", YY_ERROR_INVALID_VARIABLE);
-    check_read_symbol_variable_ko("$x}", YY_ERROR_INVALID_VARIABLE);
-    check_read_symbol_variable_ko("${xxxx", YY_ERROR_INVALID_VARIABLE);
-    check_read_symbol_variable_ko("${0abc}", YY_ERROR_INVALID_VARIABLE);
-    check_read_symbol_variable_ko("${.abc}", YY_ERROR_INVALID_VARIABLE);
-    check_read_symbol_variable_ko("${_abc}", YY_ERROR_INVALID_VARIABLE);
-    check_read_symbol_variable_ko("${abc..def}", YY_ERROR_INVALID_VARIABLE);
-    check_read_symbol_variable_ko("${abc.def.}", YY_ERROR_INVALID_VARIABLE);
-    check_read_symbol_variable_ko("${abc+def}", YY_ERROR_INVALID_VARIABLE);
-    check_read_symbol_variable_ko("${abc-def}", YY_ERROR_INVALID_VARIABLE);
+    check_read_symbol_variable_ko("");
+    check_read_symbol_variable_ko(" ");
+    check_read_symbol_variable_ko(" ${x}");
+    check_read_symbol_variable_ko("x");
+    check_read_symbol_variable_ko("$x");
+    check_read_symbol_variable_ko("$x}");
+    check_read_symbol_variable_ko("${xxxx");
+    check_read_symbol_variable_ko("${0abc}");
+    check_read_symbol_variable_ko("${.abc}");
+    check_read_symbol_variable_ko("${_abc}");
+    check_read_symbol_variable_ko("${abc..def}");
+    check_read_symbol_variable_ko("${abc.def.}");
+    check_read_symbol_variable_ko("${abc+def}");
+    check_read_symbol_variable_ko("${abc-def}");
 }
 
 void test_read_symbol_ok(void)

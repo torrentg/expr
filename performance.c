@@ -117,7 +117,7 @@ void eval_expr(input_line_t *lines)
     while(lines)
     {
         const char *str = lines->formula;
-        yy_retcode_e rc = yy_compile_number(str, str + strlen(str), &stack, NULL);
+        yy_error_e rc = yy_compile_number(str, str + strlen(str), &stack, NULL);
 
         double val = stack.data[0].number_val;
 
