@@ -87,7 +87,7 @@ const char * symbol_to_str(yy_symbol_e type)
         case YY_SYMBOL_LOWER: return "LOWER";
         case YY_SYMBOL_UPPER: return "UPPER";
         case YY_SYMBOL_TRIM: return "TRIM";
-        case YY_SYMBOL_CONCAT: return "CONCAT";
+        case YY_SYMBOL_CONCAT_OP: return "CONCAT";
         case YY_SYMBOL_SUBSTR: return "SUBSTR";
         case YY_SYMBOL_END: return "END";
         default: return "UNKNOW";
@@ -888,7 +888,6 @@ void test_read_symbol_ok(void)
     check_next_ok("lower(\"AbCdEf\")", YY_SYMBOL_LOWER, &symbol);
     check_next_ok("upper(\"AbCdEf\")", YY_SYMBOL_UPPER, &symbol);
     check_next_ok("trim(\"  abc  \")", YY_SYMBOL_TRIM, &symbol);
-    check_next_ok("concat(\"abc\", \"def\")", YY_SYMBOL_CONCAT, &symbol);
     check_next_ok("substr(\"abcdef\", 1, 3)", YY_SYMBOL_SUBSTR, &symbol);
     check_next_ok("pow(2, 3+1)", YY_SYMBOL_POWER, &symbol);
     check_next_ok("!${b}", YY_SYMBOL_NOT_OP, &symbol);
@@ -1278,7 +1277,7 @@ void test_funcs_datetime(void)
     TEST_CHECK(get_datepart(&((yy_str_t){"ms", 2})) == -1);
 
     // now()
-    token1 = func_now();
+    token1 = func_now(NULL);
     TEST_CHECK(token1.type == YY_TOKEN_DATETIME);
     datetime_to_str(token1.datetime_val, buf);
     token2 = yy_parse_datetime(buf, buf + strlen(buf));

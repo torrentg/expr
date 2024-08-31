@@ -83,18 +83,23 @@ SOFTWARE.
     #define M_PI    3.14159265358979323846
 #endif
 
-#define FPTR  (void (*)(void))
-
 #define token_error(err_)        (yy_token_t){ .error = err_                        , .type = YY_TOKEN_ERROR    }
 #define token_bool(val_)         (yy_token_t){ .bool_val = val_                     , .type = YY_TOKEN_BOOL     }
 #define token_number(val_)       (yy_token_t){ .number_val = val_                   , .type = YY_TOKEN_NUMBER   }
 #define token_datetime(val_)     (yy_token_t){ .datetime_val = val_                 , .type = YY_TOKEN_DATETIME }
 #define token_string(ptr_, len_) (yy_token_t){ .str_val = {.ptr = ptr_, .len = len_}, .type = YY_TOKEN_STRING   }
 
+// types for pure functions
 typedef yy_token_t (*yy_func_0)(void);
 typedef yy_token_t (*yy_func_1)(yy_token_t);
 typedef yy_token_t (*yy_func_2)(yy_token_t, yy_token_t);
 typedef yy_token_t (*yy_func_3)(yy_token_t, yy_token_t, yy_token_t);
+
+// types for impure functions
+typedef yy_token_t (*yy_func_0_x)(yy_stack_t *);
+typedef yy_token_t (*yy_func_1_x)(yy_token_t, yy_stack_t *);
+typedef yy_token_t (*yy_func_2_x)(yy_token_t, yy_token_t, yy_stack_t *);
+typedef yy_token_t (*yy_func_3_x)(yy_token_t, yy_token_t, yy_token_t, yy_stack_t *);
 
 typedef enum yy_symbol_e
 {
@@ -154,7 +159,7 @@ typedef enum yy_symbol_e
     YY_SYMBOL_LOWER,                //!< lower
     YY_SYMBOL_UPPER,                //!< upper
     YY_SYMBOL_TRIM,                 //!< trim
-    YY_SYMBOL_CONCAT,               //!< concat
+    YY_SYMBOL_CONCAT_OP,            //!< concat
     YY_SYMBOL_SUBSTR,               //!< substr
     YY_SYMBOL_END,                  //!< No more symbols (maintain at the end of list)
 } yy_symbol_e;
@@ -195,15 +200,16 @@ static const int days_in_month[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 
 
 // Forward declarations
 static void parse_expr_number(yy_parser_t *parser);
-static yy_token_t func_now(void);
+static void parse_expr_string(yy_parser_t *parser);
+static yy_token_t func_now(yy_stack_t *stack);
 static yy_token_t func_datepart(yy_token_t date, yy_token_t part);
 static yy_token_t func_dateadd(yy_token_t date, yy_token_t value, yy_token_t part);
 static yy_token_t func_dateset(yy_token_t date, yy_token_t value, yy_token_t part);
 static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part);
 static yy_token_t func_trim(yy_token_t str);
-static yy_token_t func_lower(yy_token_t str);
-static yy_token_t func_upper(yy_token_t str);
-static yy_token_t func_concat(yy_token_t str1, yy_token_t str2);
+static yy_token_t func_lower(yy_token_t str, yy_stack_t *stack);
+static yy_token_t func_upper(yy_token_t str, yy_stack_t *stack);
+static yy_token_t func_concat(yy_token_t str1, yy_token_t str2, yy_stack_t *stack);
 static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len);
 static yy_token_t func_length(yy_token_t str);
 static yy_token_t func_abs(yy_token_t x);
@@ -251,7 +257,6 @@ static const yy_identifier_t identifiers[] =
     { "True",      YY_SYMBOL_TRUE      },
     { "abs",       YY_SYMBOL_ABS       },
     { "ceil",      YY_SYMBOL_CEIL      },
-    { "concat",    YY_SYMBOL_CONCAT    },
     { "cos",       YY_SYMBOL_COS       },
     { "dateadd",   YY_SYMBOL_DATEADD   },
     { "datepart",  YY_SYMBOL_DATEPART  },
@@ -282,6 +287,8 @@ static const yy_identifier_t identifiers[] =
 
 #define NUM_IDENTIFIERS (sizeof(identifiers)/sizeof(identifiers[0]))
 
+#define make_func(func_, args_, ...) (yy_func_t){ .ptr = (void (*)(void)) func_, .num_args = args_, __VA_ARGS__ }
+
 static const yy_token_t symbol_to_token[] =
 {
     [YY_SYMBOL_NUMBER_VAL]      = { .type = YY_TOKEN_NUMBER   }, 
@@ -300,50 +307,50 @@ static const yy_token_t symbol_to_token[] =
     // [YY_SYMBOL_PAREN_RIGHT]  = { .type = YY_TOKEN_NULL     },
     // [YY_SYMBOL_COMMA]        = { .type = YY_TOKEN_NULL     },
 
-    [YY_SYMBOL_POWER_OP]        = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_pow        , 2, 2 } },
-    [YY_SYMBOL_NOT_OP]          = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_not        , 1, 3, true } },
-    [YY_SYMBOL_MINUS_OP]        = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_minus      , 1, 3, true } },
-    [YY_SYMBOL_PLUS_OP]         = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_ident      , 1, 3, true } },
-    [YY_SYMBOL_PRODUCT_OP]      = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_mult       , 2, 4 } },
-    [YY_SYMBOL_DIVIDE_OP]       = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_div        , 2, 4 } },
-    [YY_SYMBOL_MODULO_OP]       = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_mod        , 2, 4 } },
-    [YY_SYMBOL_ADDITION_OP]     = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_addition   , 2, 5 } },
-    [YY_SYMBOL_SUBTRACTION_OP]  = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_subtraction, 2, 5 } },
-    [YY_SYMBOL_LESS_OP]         = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_lt         , 2, 6 } },
-    [YY_SYMBOL_LESS_EQUALS_OP]  = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_le         , 2, 6 } },
-    [YY_SYMBOL_GREAT_OP]        = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_gt         , 2, 6 } },
-    [YY_SYMBOL_GREAT_EQUALS_OP] = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_ge         , 2, 6 } },
-    [YY_SYMBOL_EQUALS_OP]       = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_eq         , 2, 7 } },
-    [YY_SYMBOL_DISTINCT_OP]     = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_ne         , 2, 7 } },
-    [YY_SYMBOL_AND_OP]          = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_and        , 2, 8 } },
-    [YY_SYMBOL_OR_OP]           = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_or         , 2, 9 } },
-    [YY_SYMBOL_ISINF]           = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_isinf      , 1 } },
-    [YY_SYMBOL_ISNAN]           = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_isnan      , 1 } },
-    [YY_SYMBOL_ABS]             = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_abs        , 1 } },
-    [YY_SYMBOL_MODULO]          = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_mod        , 2 } },
-    [YY_SYMBOL_POWER]           = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_pow        , 2 } },
-    [YY_SYMBOL_SQRT]            = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_sqrt       , 1 } },
-    [YY_SYMBOL_SIN]             = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_sin        , 1 } },
-    [YY_SYMBOL_COS]             = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_cos        , 1 } },
-    [YY_SYMBOL_TAN]             = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_tan        , 1 } },
-    [YY_SYMBOL_EXP]             = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_exp        , 1 } },
-    [YY_SYMBOL_LOG]             = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_log        , 1 } },
-    [YY_SYMBOL_TRUNC]           = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_trunc      , 1 } },
-    [YY_SYMBOL_CEIL]            = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_ceil       , 1 } },
-    [YY_SYMBOL_FLOOR]           = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_floor      , 1 } },
-    [YY_SYMBOL_NOW]             = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_now        , 0 } },
-    [YY_SYMBOL_DATEPART]        = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_datepart   , 2 } },
-    [YY_SYMBOL_DATEADD]         = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_dateadd    , 3 } },
-    [YY_SYMBOL_DATESET]         = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_dateset    , 3 } },
-    [YY_SYMBOL_DATETRUNC]       = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_datetrunc  , 2 } },
-    [YY_SYMBOL_LENGTH]          = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_length     , 1 } },
-    [YY_SYMBOL_LOWER]           = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_lower      , 1 } },
-    [YY_SYMBOL_UPPER]           = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_upper      , 1 } },
-    [YY_SYMBOL_TRIM]            = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_trim       , 1 } },
-    [YY_SYMBOL_CONCAT]          = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_concat     , 2 } },
-    [YY_SYMBOL_SUBSTR]          = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_substr     , 3 } },
-    [YY_SYMBOL_MIN]             = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_min        , 2 } },
-    [YY_SYMBOL_MAX]             = { .type = YY_TOKEN_FUNCTION, .function = { FPTR func_max        , 2 } },
+    [YY_SYMBOL_POWER_OP]        = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_pow        , 2, .precedence = 2) },
+    [YY_SYMBOL_NOT_OP]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_not        , 1, .precedence = 3) },
+    [YY_SYMBOL_MINUS_OP]        = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_minus      , 1, .precedence = 3, .right_to_left = true) },
+    [YY_SYMBOL_PLUS_OP]         = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_ident      , 1, .precedence = 3, .right_to_left = true) },
+    [YY_SYMBOL_PRODUCT_OP]      = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_mult       , 2, .precedence = 4) },
+    [YY_SYMBOL_DIVIDE_OP]       = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_div        , 2, .precedence = 4) },
+    [YY_SYMBOL_MODULO_OP]       = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_mod        , 2, .precedence = 4) },
+    [YY_SYMBOL_ADDITION_OP]     = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_addition   , 2, .precedence = 5) },
+    [YY_SYMBOL_SUBTRACTION_OP]  = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_subtraction, 2, .precedence = 5) },
+    [YY_SYMBOL_LESS_OP]         = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_lt         , 2, .precedence = 6) },
+    [YY_SYMBOL_LESS_EQUALS_OP]  = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_le         , 2, .precedence = 6) },
+    [YY_SYMBOL_GREAT_OP]        = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_gt         , 2, .precedence = 6) },
+    [YY_SYMBOL_GREAT_EQUALS_OP] = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_ge         , 2, .precedence = 6) },
+    [YY_SYMBOL_EQUALS_OP]       = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_eq         , 2, .precedence = 7) },
+    [YY_SYMBOL_DISTINCT_OP]     = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_ne         , 2, .precedence = 7) },
+    [YY_SYMBOL_AND_OP]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_and        , 2, .precedence = 8) },
+    [YY_SYMBOL_OR_OP]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_or         , 2, .precedence = 9) },
+    [YY_SYMBOL_ISINF]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_isinf      , 1) },
+    [YY_SYMBOL_ISNAN]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_isnan      , 1) },
+    [YY_SYMBOL_ABS]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_abs        , 1) },
+    [YY_SYMBOL_MODULO]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_mod        , 2) },
+    [YY_SYMBOL_POWER]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_pow        , 2) },
+    [YY_SYMBOL_SQRT]            = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_sqrt       , 1) },
+    [YY_SYMBOL_SIN]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_sin        , 1) },
+    [YY_SYMBOL_COS]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_cos        , 1) },
+    [YY_SYMBOL_TAN]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_tan        , 1) },
+    [YY_SYMBOL_EXP]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_exp        , 1) },
+    [YY_SYMBOL_LOG]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_log        , 1) },
+    [YY_SYMBOL_TRUNC]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_trunc      , 1) },
+    [YY_SYMBOL_CEIL]            = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_ceil       , 1) },
+    [YY_SYMBOL_FLOOR]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_floor      , 1) },
+    [YY_SYMBOL_NOW]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_now        , 0, .is_not_pure = true) },
+    [YY_SYMBOL_DATEPART]        = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_datepart   , 2) },
+    [YY_SYMBOL_DATEADD]         = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_dateadd    , 3) },
+    [YY_SYMBOL_DATESET]         = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_dateset    , 3) },
+    [YY_SYMBOL_DATETRUNC]       = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_datetrunc  , 2) },
+    [YY_SYMBOL_LENGTH]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_length     , 1) },
+    [YY_SYMBOL_LOWER]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_lower      , 1, .is_not_pure = true) },
+    [YY_SYMBOL_UPPER]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_upper      , 1, .is_not_pure = true) },
+    [YY_SYMBOL_TRIM]            = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_trim       , 1) },
+    [YY_SYMBOL_CONCAT_OP]       = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_concat     , 2, .precedence = 5, .is_not_pure = true) },
+    [YY_SYMBOL_SUBSTR]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_substr     , 3) },
+    [YY_SYMBOL_MIN]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_min        , 2) },
+    [YY_SYMBOL_MAX]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_max        , 2) },
     [YY_SYMBOL_END]             = { .type = YY_TOKEN_NULL }
 };
 
@@ -1077,10 +1084,11 @@ static yy_token_t * get(yy_stack_t *stack, uint32_t idx)
  * 
  * Supported simplifications:
  *   - Remove plus operator (ex: +1 -> 1)
- *   - Eval top function if it has fixed values (ex: 1+1 -> 2)
+ *   - Eval top function if its arguments are fixed values (ex: 1+1 -> 2)
  * 
  * Unsupported simplifications:
  *   - For commutative operators, move fixed values to top (ex: 1+$a+3 -> $a+1+3 -> $a+4)
+ *   - Non-pure functions
  * 
  * @param stack Stack to simplify.
  * 
@@ -1095,11 +1103,16 @@ static bool simplify_stack(yy_parser_t *parser)
     if (!token0 || token0->type != YY_TOKEN_FUNCTION)
         return false;
 
-    if (stack->len < token0->function.num_args)
+    if (token0->function.is_not_pure)
         return false;
 
-    if (token0->function.num_args == 0)
+    if ((int)stack->len < token0->function.num_args + 1)
         return false;
+
+    if (token0->function.num_args == 0) {
+        *token0 = ((yy_func_0) token0->function.ptr)();
+        return true;
+    }
 
     if ((yy_func_1) token0->function.ptr == func_ident) {
         pop_stack(parser);
@@ -1462,7 +1475,7 @@ static void parse_expr_number(yy_parser_t *parser)
 { 
     assert(parser);
 
-NUMBER_EXPR_START:
+EXPR_NUMBER_START:
 
     if (parser->error != YY_OK)
         return;
@@ -1481,7 +1494,97 @@ NUMBER_EXPR_START:
         case YY_SYMBOL_MODULO_OP: 
         case YY_SYMBOL_POWER_OP: 
             consume(parser);
-            goto NUMBER_EXPR_START;
+            goto EXPR_NUMBER_START;
+        case YY_SYMBOL_END: 
+            consume(parser);
+            break;
+        default:
+            break;
+    }
+}
+
+/**
+ * Parse a string term.
+ * 
+ * @see Grammar described in docs.
+ * 
+ * @param[in] parser Parser to update.
+ */
+static void parse_term_string(yy_parser_t *parser)
+{
+    assert(parser);
+
+    if (parser->error != YY_OK)
+        return;
+
+    switch (parser->curr_symbol.type)
+    {
+        case YY_SYMBOL_STRING_VAL:
+        case YY_SYMBOL_VARIABLE:
+            consume(parser);
+            break;
+        case YY_SYMBOL_TRIM:
+        case YY_SYMBOL_LOWER:
+        case YY_SYMBOL_UPPER:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_string(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
+        case YY_SYMBOL_MAX:
+        case YY_SYMBOL_MIN:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_string(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_string(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
+        case YY_SYMBOL_SUBSTR:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_string(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_number(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_number(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
+        case YY_SYMBOL_PAREN_LEFT:
+            consume(parser);
+            parse_expr_number(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
+        default:
+            parser->error = YY_ERROR_SYNTAX;
+    }
+}
+
+/**
+ * Parse a string expression until an unrecognized symbol is found.
+ * 
+ * @param[in] Parser object.
+ */
+static void parse_expr_string(yy_parser_t *parser)
+{ 
+    assert(parser);
+
+EXPR_STRING_START:
+
+    if (parser->error != YY_OK)
+        return;
+
+    parse_term_string(parser);
+
+    if (parser->error != YY_OK)
+        return;
+
+    switch (parser->curr_symbol.type)
+    {
+        case YY_SYMBOL_ADDITION_OP: 
+            parser->curr_symbol.type = YY_SYMBOL_CONCAT_OP;
+            consume(parser);
+            goto EXPR_STRING_START;
         case YY_SYMBOL_END: 
             consume(parser);
             break;
@@ -1659,14 +1762,42 @@ yy_error_e yy_compile_datetime(const char *begin, const char *end, yy_stack_t *s
     return parser.error;
 }
 
+/**
+ * Implements a recursive descent parser for string expressions.
+ * 
+ * See grammar in the project doc.
+ */
+yy_error_e yy_compile_string(const char *begin, const char *end, yy_stack_t *stack, const char **err)
+{
+    if (!begin || !end || begin > end || !stack || !stack->data)
+        return YY_ERROR;
+
+    yy_parser_t parser;
+
+    init_parser(&parser, begin, end, stack);
+    parse_expr_string(&parser);
+
+    if (parser.error == YY_OK && parser.curr_symbol.type != YY_SYMBOL_END)
+        parser.error = YY_ERROR_SYNTAX;
+
+    if (err && parser.error != YY_OK)
+        *err = parser.curr;
+
+    return parser.error;
+}
+
 INLINE
 static yy_token_t eval_func(yy_stack_t *stack, yy_func_t func)
 {
     if (!func.ptr) 
         return token_error(YY_ERROR_EVAL);
 
-    if (func.num_args == 0)
-        return ((yy_func_0) func.ptr)();
+    if (func.num_args == 0) {
+        if (func.is_not_pure)
+            return ((yy_func_0_x) func.ptr)(stack);
+        else
+            return ((yy_func_0) func.ptr)();
+    }
 
     if (stack->len < func.num_args)
         return token_error(YY_ERROR_EVAL);
@@ -1675,22 +1806,34 @@ static yy_token_t eval_func(yy_stack_t *stack, yy_func_t func)
     assert(token1);
     assert(is_token_fixed_value(token1->type));
 
-    if (func.num_args == 1)
-        return ((yy_func_1) func.ptr)(*token1);
+    if (func.num_args == 1) {
+        if (func.is_not_pure)
+            return ((yy_func_1_x) func.ptr)(*token1, stack);
+        else
+            return ((yy_func_1) func.ptr)(*token1);
+    }
 
     yy_token_t *token2 = get(stack, 1);
     assert(token2);
     assert(is_token_fixed_value(token2->type));
 
-    if (func.num_args == 2)
-        return  ((yy_func_2) func.ptr)(*token2, *token1);
+    if (func.num_args == 2) {
+        if (func.is_not_pure)
+            return ((yy_func_2_x) func.ptr)(*token2, *token1, stack);
+        else
+            return ((yy_func_2) func.ptr)(*token2, *token1);
+    }
 
     yy_token_t *token3 = get(stack, 2);
     assert(token3);
     assert(is_token_fixed_value(token3->type));
 
-    if (func.num_args == 3)
-        return ((yy_func_3) func.ptr)(*token3, *token2, *token1);
+    if (func.num_args == 3) {
+        if (func.is_not_pure)
+            return ((yy_func_3_x) func.ptr)(*token3, *token2, *token1, stack);
+        else
+            return ((yy_func_3) func.ptr)(*token3, *token2, *token1);
+    }
 
     return token_error(YY_ERROR_EVAL);
 }
@@ -2210,8 +2353,10 @@ DATETIME_ERROR:
 
 // --- Functions returning a datetime
 
-static yy_token_t func_now(void)
+static yy_token_t func_now(yy_stack_t *stack)
 {
+    UNUSED(stack);
+
     struct timeval stv = {0};
 
     gettimeofday(&stv, NULL);
@@ -2357,20 +2502,40 @@ static yy_token_t func_trim(yy_token_t str) {
     return (yy_token_t){0};
 }
 
-static yy_token_t func_lower(yy_token_t str) {
-    UNUSED(str);
-    return (yy_token_t){0};
+static yy_token_t func_lower(yy_token_t str, yy_stack_t *stack)
+{
+    UNUSED(stack);
+
+    if (str.type != YY_TOKEN_STRING)
+        return token_error(YY_ERROR_VALUE);
+
+    // TODO
+
+    return str;
 }
 
-static yy_token_t func_upper(yy_token_t str) {
-    UNUSED(str);
-    return (yy_token_t){0};
+static yy_token_t func_upper(yy_token_t str, yy_stack_t *stack)
+{
+    UNUSED(stack);
+
+    if (str.type != YY_TOKEN_STRING)
+        return token_error(YY_ERROR_VALUE);
+
+    // TODO
+
+    return str;
 }
 
-static yy_token_t func_concat(yy_token_t str1, yy_token_t str2) {
-    UNUSED(str1);
-    UNUSED(str2);
-    return (yy_token_t){0};
+static yy_token_t func_concat(yy_token_t str1, yy_token_t str2, yy_stack_t *stack)
+{
+    UNUSED(stack);
+
+    if (str1.type != YY_TOKEN_STRING || str2.type != YY_TOKEN_STRING)
+        return token_error(YY_ERROR_VALUE);
+
+    // TODO
+
+    return str1;
 }
 
 static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len) {
@@ -2496,19 +2661,6 @@ static yy_token_t func_sqrt(yy_token_t x)
     return token_number(sqrt(x.number_val));
 }
 
-static yy_token_t func_pow(yy_token_t x, yy_token_t y)
-{
-    if (x.type != YY_TOKEN_NUMBER)
-        return token_error(YY_ERROR_VALUE);
-
-    if (y.type != YY_TOKEN_NUMBER)
-        return token_error(YY_ERROR_VALUE);
-
-    double val = pow(x.number_val, y.number_val);
-
-    return token_number(val);
-}
-
 static yy_token_t func_minus(yy_token_t x)
 {
     if (x.type != YY_TOKEN_NUMBER)
@@ -2543,10 +2695,7 @@ static yy_token_t func_isnan(yy_token_t x)
 
 static yy_token_t func_addition(yy_token_t x, yy_token_t y)
 {
-    if (x.type != YY_TOKEN_NUMBER)
-        return token_error(YY_ERROR_VALUE);
-
-    if (y.type != YY_TOKEN_NUMBER)
+    if (x.type != YY_TOKEN_NUMBER || y.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
     return token_number(x.number_val + y.number_val);
@@ -2554,10 +2703,7 @@ static yy_token_t func_addition(yy_token_t x, yy_token_t y)
 
 static yy_token_t func_subtraction(yy_token_t x, yy_token_t y)
 {
-    if (x.type != YY_TOKEN_NUMBER)
-        return token_error(YY_ERROR_VALUE);
-
-    if (y.type != YY_TOKEN_NUMBER)
+    if (x.type != YY_TOKEN_NUMBER || y.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
     return token_number(x.number_val - y.number_val);
@@ -2565,10 +2711,7 @@ static yy_token_t func_subtraction(yy_token_t x, yy_token_t y)
 
 static yy_token_t func_mult(yy_token_t x, yy_token_t y)
 {
-    if (x.type != YY_TOKEN_NUMBER)
-        return token_error(YY_ERROR_VALUE);
-
-    if (y.type != YY_TOKEN_NUMBER)
+    if (x.type != YY_TOKEN_NUMBER || y.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
     return token_number(x.number_val * y.number_val);
@@ -2576,10 +2719,7 @@ static yy_token_t func_mult(yy_token_t x, yy_token_t y)
 
 static yy_token_t func_div(yy_token_t x, yy_token_t y)
 {
-    if (x.type != YY_TOKEN_NUMBER)
-        return token_error(YY_ERROR_VALUE);
-
-    if (y.type != YY_TOKEN_NUMBER)
+    if (x.type != YY_TOKEN_NUMBER || y.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
     return token_number(x.number_val / y.number_val);
@@ -2587,13 +2727,20 @@ static yy_token_t func_div(yy_token_t x, yy_token_t y)
 
 static yy_token_t func_mod(yy_token_t x, yy_token_t y)
 {
-    if (x.type != YY_TOKEN_NUMBER)
-        return token_error(YY_ERROR_VALUE);
-
-    if (y.type != YY_TOKEN_NUMBER)
+    if (x.type != YY_TOKEN_NUMBER || y.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
     double val = fmod(x.number_val, y.number_val);
+
+    return token_number(val);
+}
+
+static yy_token_t func_pow(yy_token_t x, yy_token_t y)
+{
+    if (x.type != YY_TOKEN_NUMBER || y.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    double val = pow(x.number_val, y.number_val);
 
     return token_number(val);
 }

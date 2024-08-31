@@ -67,8 +67,9 @@ typedef struct PACKED yy_str_t {
 typedef struct PACKED yy_func_t {
     void (*ptr)(void);              //!< Pointer to function.
     uint8_t num_args;               //!< Number of arguments.
-    uint8_t precedence;             //!< Operator precedence.
-    bool right_to_left;             //!< Operator associativity.
+    uint8_t precedence;             //!< Operator precedence (distinct than 0 means operator).
+    uint8_t right_to_left : 1;      //!< Associativity (only for operators).
+    uint8_t is_not_pure : 1;        //!< Result depends not-only on arguments.
 } yy_func_t;
 
 typedef struct yy_token_t {
@@ -153,9 +154,10 @@ yy_error_e yy_compile(const char *begin, const char *end, yy_stack_t *stack, con
  * @param[in] stack Reverse polish notation (rpn) stack.
  * @param[in] aux Auxiliary stack (used to evaluate the rpn stack and store intermediate string values).
  * @param[in] resolve Function used to resolve variables (can be NULL if there are no variables).
- * @param[in] data Data passed to the 'resolve' function (can be NULL).
+ * @param[in] data Data passed to the 'resolve' function.
  * 
- * @return Result as token, can be an error (see yy_token_t.type).
+ * @return Result as token, 
+ *         on error type=YY_TOKEN_ERROR and error contains the error detail.
  */
 yy_token_t yy_eval(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
 
