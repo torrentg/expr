@@ -42,7 +42,10 @@ __Grammar for numeric expressions__
 
 ```
 numExpr     = numTerm (numInfixOp numTerm)*
-numTerm     = number | variable | numConst | numFunc | '(' numExpr ')' | numPrefixOp numTerm
+numTerm     = number | variable | numConst | 
+              numFunc | 
+              '(' numExpr ')' | 
+              numPrefixOp numTerm
 numInfixOp  = '+' | '-' | '*' | '/' | '^' | '%'
 numPrefixOp = '+' | '-'
 numFunc     = <see list below>
@@ -123,7 +126,17 @@ __Grammar for boolean expressions__
 
 ```
 boolExpr     = boolTerm (boolInfixOp boolTerm)*
-boolTerm     = boolean | variable | boolFunc | '(' boolExpr ')' | '!' boolTerm
+boolTerm     = boolean | 
+               variable | 
+               boolFunc | 
+               '(' boolExpr ')' | 
+               '!' boolTerm |
+               (numExpr | timeTerm | strExpr) <  (numExpr | timeTerm | strExpr) |
+               (numExpr | timeTerm | strExpr) <= (numExpr | timeTerm | strExpr) |
+               (numExpr | timeTerm | strExpr) >  (numExpr | timeTerm | strExpr) |
+               (numExpr | timeTerm | strExpr) >= (numExpr | timeTerm | strExpr) |
+               (numExpr | timeTerm | strExpr) == (numExpr | timeTerm | strExpr) |
+               (numExpr | timeTerm | strExpr) != (numExpr | timeTerm | strExpr) |
 boolInfixOp  = '&&' | '||'
 boolFunc     = <see list below>
 ```

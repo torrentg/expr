@@ -38,6 +38,10 @@ SOFTWARE.
     #define PACKED     /**/
 #endif
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef enum yy_token_e {
     YY_TOKEN_NULL,                  //!< Unassigned token.
     YY_TOKEN_BOOL,                  //!< Bool value.
@@ -160,5 +164,9 @@ yy_error_e yy_compile(const char *begin, const char *end, yy_stack_t *stack, con
  *         on error type=YY_TOKEN_ERROR and error contains the error detail.
  */
 yy_token_t yy_eval(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

@@ -28,6 +28,7 @@ SOFTWARE.
 #include <math.h>
 #include <time.h>
 #include <errno.h>
+#include <ctype.h>
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
@@ -72,8 +73,9 @@ SOFTWARE.
     #define INFINITY (1.0 /0.0)
 #endif
 
-#define MIN(a,b) (((a)<(b))?(a):(b))
-#define MAX(a,b) (((a)>(b))?(a):(b))
+#define MIN(a, b)       (((a)<(b))?(a):(b))
+#define MAX(a, b)       (((a)>(b))?(a):(b))
+#define CLAMP(x, a, b)  (((x)<(a))?(a):(((b)<(x))?(b):(x)))
 
 #ifndef M_E
     #define M_E     2.7182818284590452354
@@ -194,6 +196,12 @@ typedef struct yy_identifier_t
     const char *str;
     yy_symbol_e type;
 } yy_identifier_t;
+
+typedef struct yy_eval_ctx_t
+{
+    yy_stack_t *stack;              //!< Stack values.
+    uint32_t mem_len;               //!< Used memory length.
+} yy_eval_ctx_t;
 
 // Days in month
 static const int days_in_month[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
@@ -1552,7 +1560,7 @@ static void parse_term_string(yy_parser_t *parser)
             break;
         case YY_SYMBOL_PAREN_LEFT:
             consume(parser);
-            parse_expr_number(parser);
+            parse_expr_string(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
         default:
@@ -2497,16 +2505,28 @@ static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part)
 
 // --- Functions returning a string
 
-static yy_token_t func_trim(yy_token_t str) {
-    UNUSED(str);
-    return (yy_token_t){0};
+static yy_token_t func_trim(yy_token_t str)
+{
+    if (str.type != YY_TOKEN_STRING || !str.str_val.ptr)
+        return token_error(YY_ERROR_VALUE);
+
+    const char *ptr = str.str_val.ptr;
+    const char *end = str.str_val.ptr + str.str_val.len;
+
+    while (ptr < end && isspace(*ptr))
+        ++ptr;
+    
+    while (ptr < end && isspace(*(end-1)))
+        --end;
+
+    return token_string(ptr, end - ptr);
 }
 
 static yy_token_t func_lower(yy_token_t str, yy_stack_t *stack)
 {
     UNUSED(stack);
 
-    if (str.type != YY_TOKEN_STRING)
+    if (str.type != YY_TOKEN_STRING || !str.str_val.ptr)
         return token_error(YY_ERROR_VALUE);
 
     // TODO
@@ -2518,7 +2538,7 @@ static yy_token_t func_upper(yy_token_t str, yy_stack_t *stack)
 {
     UNUSED(stack);
 
-    if (str.type != YY_TOKEN_STRING)
+    if (str.type != YY_TOKEN_STRING || !str.str_val.ptr)
         return token_error(YY_ERROR_VALUE);
 
     // TODO
@@ -2530,7 +2550,7 @@ static yy_token_t func_concat(yy_token_t str1, yy_token_t str2, yy_stack_t *stac
 {
     UNUSED(stack);
 
-    if (str1.type != YY_TOKEN_STRING || str2.type != YY_TOKEN_STRING)
+    if (str1.type != YY_TOKEN_STRING || str2.type != YY_TOKEN_STRING || !str1.str_val.ptr || !str2.str_val.ptr)
         return token_error(YY_ERROR_VALUE);
 
     // TODO
@@ -2538,11 +2558,19 @@ static yy_token_t func_concat(yy_token_t str1, yy_token_t str2, yy_stack_t *stac
     return str1;
 }
 
-static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len) {
-    UNUSED(str);
-    UNUSED(start);
-    UNUSED(len);
-    return (yy_token_t){0};
+static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len)
+{
+    if (str.type != YY_TOKEN_STRING || !str.str_val.ptr)
+        return token_error(YY_ERROR_VALUE);
+
+    if (start.type != YY_TOKEN_NUMBER || len.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    uint32_t pos = CLAMP((int) start.number_val, 0, (int) str.str_val.len);
+    const char *new_ptr = str.str_val.ptr + pos;
+    uint32_t new_len = CLAMP((int) len.number_val, 0, (int)(str.str_val.len - pos));
+
+    return token_string(new_ptr, new_len);
 }
 
 // --- Functions returning a number

@@ -130,7 +130,7 @@ void print_token(yy_token_t token)
             printf("%s", datetime_to_str(token.datetime_val, buf));
             break;
         case YY_TOKEN_STRING:
-            printf("%.*s", token.str_val.len, token.str_val.ptr);
+            printf("\"%.*s\"", token.str_val.len, token.str_val.ptr);
             break;
         case YY_TOKEN_VARIABLE:
             printf("%.*s", token.variable.len, token.variable.ptr);
@@ -374,6 +374,32 @@ void check_compile_datetime_ko(const char *str)
     yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
     yy_error_e rc = yy_compile_datetime(str, str + strlen(str), &stack, NULL);
+
+    TEST_CHECK(rc != YY_OK);
+    TEST_MSG("Case='%s', error=failed", str);
+}
+
+void check_compile_string_ok(const char *str)
+{
+    yy_token_t data[64] = {0};
+    yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
+
+    yy_error_e rc = yy_compile_string(str, str + strlen(str), &stack, NULL);
+
+    TEST_CHECK(rc == YY_OK);
+    TEST_MSG("Case='%s', error=unexpected-rc, rc=%d", str, rc);
+
+    printf("%s --> ", str);
+    print_stack(&stack);
+    printf("\n");
+}
+
+void check_compile_string_ko(const char *str)
+{
+    yy_token_t data[64] = {0};
+    yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
+
+    yy_error_e rc = yy_compile_string(str, str + strlen(str), &stack, NULL);
 
     TEST_CHECK(rc != YY_OK);
     TEST_MSG("Case='%s', error=failed", str);
@@ -987,6 +1013,22 @@ void test_compile_datetime(void)
     check_compile_datetime_ok("max(\"2023-08-30T06:16:34.123Z\", now())");
 }
 
+void test_compile_string(void)
+{
+    check_compile_string_ok("\"Hi bob!\"");
+    check_compile_string_ok("\"first part \" + \"plus second part\"");
+    check_compile_string_ok("upper(\"Hi bob!\")");
+    check_compile_string_ok("lower(\"Hi bob!\")");
+    check_compile_string_ok("( lower(\"Hi \") + upper(\"bob\") ) + \"!\"");
+    check_compile_string_ok("trim(\"  <- leading spaces and trailing spaces->  \")");
+    check_compile_string_ok("substr(\"0123456789\", 3, 4)");
+    check_compile_string_ok("substr(\"0123456789\", 3, 10)");
+    check_compile_string_ok("substr(\"0123456789\", -10, 30)");
+    check_compile_string_ok("min(\"abc\", \"xyz\")");
+    check_compile_string_ok("max(\"abc\", \"xyz\")");
+    check_compile_string_ok("min(\"abc\", \"xyz\") + \"...\" + max(\"abc\", \"xyz\")");
+}
+
 void test_sizeof(void)
 {
     TEST_CHECK(sizeof(uint64_t) == 8);
@@ -1368,6 +1410,19 @@ void test_funcs_bool(void)
     TEST_CHECK(token.type == YY_TOKEN_ERROR);
 }
 
+void test_funcs_string(void)
+{
+    // TODO 
+
+    // upper()
+    // lower()
+    // trim()
+    // concat()
+    // substr()
+    // min()
+    // max()
+}
+
 TEST_LIST = {
     { "sizeof",                       test_sizeof },
     { "yy_parse_number_ok",           test_parse_number_ok },
@@ -1385,8 +1440,10 @@ TEST_LIST = {
     { "skip_spaces",                  test_skip_spaces },
     { "yy_compile_number",            test_compile_number },
     { "yy_compile_datetime",          test_compile_datetime },
+    { "yy_compile_string",            test_compile_string },
     { "funcs_number",                 test_funcs_number },
     { "funcs_datetime",               test_funcs_datetime },
     { "funcs_bool",                   test_funcs_bool },
+    { "funcs_string",                 test_funcs_string },
     { NULL, NULL }
 };
