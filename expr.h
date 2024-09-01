@@ -156,7 +156,7 @@ yy_error_e yy_compile(const char *begin, const char *end, yy_stack_t *stack, con
  * Evaluate a rpn stack.
  * 
  * @param[in] stack Reverse polish notation (rpn) stack.
- * @param[in] aux Auxiliary stack (used to evaluate the rpn stack and store intermediate string values).
+ * @param[in] aux Memory used to evaluate the stack (to store intermediate values).
  * @param[in] resolve Function used to resolve variables (can be NULL if there are no variables).
  * @param[in] data Data passed to the 'resolve' function.
  * 

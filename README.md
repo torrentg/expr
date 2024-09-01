@@ -73,7 +73,7 @@ numConst    = <see list below>
 | number   | `ceil`       | (numExpr)                     | Smallest int not less than num           |
 | number   | `floor`      | (numExpr)                     | Largest int not less than num            |
 | number   | `trunc`      | (numExpr)                     | Round to integer, toward zero            |
-| number   | `length`     | (strTerm)                     | Length of a string                       |
+| number   | `length`     | (strExpr)                     | Length of a string                       |
 | number   | `datepart`   | (timeTerm, timePart)          | Returns a part from a date               |
 | number   | `min`        | (numExpr, numExpr)            | Returns the smaller of two given values  |
 | number   | `max`        | (numExpr, numExpr)            | Returns the larger of two given values   |
@@ -130,7 +130,6 @@ boolTerm     = boolean |
                variable | 
                boolFunc | 
                '(' boolExpr ')' | 
-               '!' boolTerm |
                (numExpr | timeTerm | strExpr) <  (numExpr | timeTerm | strExpr) |
                (numExpr | timeTerm | strExpr) <= (numExpr | timeTerm | strExpr) |
                (numExpr | timeTerm | strExpr) >  (numExpr | timeTerm | strExpr) |
@@ -143,7 +142,6 @@ boolFunc     = <see list below>
 
 | Return   | Function     | Params                        | Description                              |
 | -------- | ------------ | ----------------------------- | -------------------------------------    |
-| boolean  | `!`          | (boolExpr)                    | Negate                                   |
 | boolean  | `&&`         | (boolExpr, boolExpr)          | And                                      |
 | boolean  | `\|\|`       | (boolExpr, boolExpr)          | Or                                       |
 | boolean  | `<`          | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr)   | Less-than             |
@@ -152,6 +150,7 @@ boolFunc     = <see list below>
 | boolean  | `>=`         | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr)   | Greater-than-or-equal |
 | boolean  | `==`         | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr) <br/> (boolExpr, boolExpr)  | Equal-to           |
 | boolean  | `!=`         | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr) <br/> (boolExpr, boolExpr)  | Not-equal-to       |
+| boolean  | `not`        | (boolExpr)                    | Negate                                   |
 | boolean  | `isinf`      | (numExpr)                     | Checks if a number is &plusmn; infinite  |
 | boolean  | `isnan`      | (numExpr)                     | Checks if a number is a NaN              |
 

@@ -56,7 +56,6 @@ const char * symbol_to_str(yy_symbol_e type)
         case YY_SYMBOL_LESS_EQUALS_OP: return "LESS_EQUALS_OP";
         case YY_SYMBOL_GREAT_OP: return "GREAT_OP";
         case YY_SYMBOL_GREAT_EQUALS_OP: return "GREAT_EQUALS_OP";
-        case YY_SYMBOL_NOT_OP: return "NOT_OP";
         case YY_SYMBOL_PLUS_OP: return "PLUS_OP";
         case YY_SYMBOL_MINUS_OP: return "MINUS_OP";
         case YY_SYMBOL_ADDITION_OP: return "ADDITION_OP";
@@ -89,6 +88,9 @@ const char * symbol_to_str(yy_symbol_e type)
         case YY_SYMBOL_TRIM: return "TRIM";
         case YY_SYMBOL_CONCAT_OP: return "CONCAT";
         case YY_SYMBOL_SUBSTR: return "SUBSTR";
+        case YY_SYMBOL_NOT: return "NOT";
+        case YY_SYMBOL_ISNAN: return "ISNAN";
+        case YY_SYMBOL_ISINF: return "ISINF";
         case YY_SYMBOL_END: return "END";
         default: return "UNKNOW";
     }
@@ -381,7 +383,7 @@ void check_compile_datetime_ko(const char *str)
 
 void check_compile_string_ok(const char *str)
 {
-    yy_token_t data[64] = {0};
+    yy_token_t data[256] = {0};
     yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
     yy_error_e rc = yy_compile_string(str, str + strlen(str), &stack, NULL);
@@ -886,7 +888,7 @@ void test_read_symbol_ok(void)
     check_next_ok("<= 42", YY_SYMBOL_LESS_EQUALS_OP, &symbol);
     check_next_ok("> 42", YY_SYMBOL_GREAT_OP, &symbol);
     check_next_ok(">= 42", YY_SYMBOL_GREAT_EQUALS_OP, &symbol);
-    check_next_ok("!!false", YY_SYMBOL_NOT_OP, &symbol);
+    check_next_ok("not(false)", YY_SYMBOL_NOT, &symbol);
     check_next_ok("+ 42", YY_SYMBOL_ADDITION_OP, &symbol);
     check_next_ok("- 42", YY_SYMBOL_SUBTRACTION_OP, &symbol);
     check_next_ok("* 3", YY_SYMBOL_PRODUCT_OP, &symbol);
@@ -916,7 +918,7 @@ void test_read_symbol_ok(void)
     check_next_ok("trim(\"  abc  \")", YY_SYMBOL_TRIM, &symbol);
     check_next_ok("substr(\"abcdef\", 1, 3)", YY_SYMBOL_SUBSTR, &symbol);
     check_next_ok("pow(2, 3+1)", YY_SYMBOL_POWER, &symbol);
-    check_next_ok("!${b}", YY_SYMBOL_NOT_OP, &symbol);
+    check_next_ok("not(${b})", YY_SYMBOL_NOT, &symbol);
     check_next_ok("< 5", YY_SYMBOL_LESS_OP, &symbol);
     check_next_ok("> 42", YY_SYMBOL_GREAT_OP, &symbol);
 }
@@ -1019,6 +1021,8 @@ void test_compile_string(void)
     check_compile_string_ok("\"first part \" + \"plus second part\"");
     check_compile_string_ok("upper(\"Hi bob!\")");
     check_compile_string_ok("lower(\"Hi bob!\")");
+    check_compile_string_ok("\"hi \" + upper(\"bob\")");
+    check_compile_string_ok("lower(\"Hi \") + upper(\"bob\")");
     check_compile_string_ok("( lower(\"Hi \") + upper(\"bob\") ) + \"!\"");
     check_compile_string_ok("trim(\"  <- leading spaces and trailing spaces->  \")");
     check_compile_string_ok("substr(\"0123456789\", 3, 4)");
@@ -1027,6 +1031,9 @@ void test_compile_string(void)
     check_compile_string_ok("min(\"abc\", \"xyz\")");
     check_compile_string_ok("max(\"abc\", \"xyz\")");
     check_compile_string_ok("min(\"abc\", \"xyz\") + \"...\" + max(\"abc\", \"xyz\")");
+    check_compile_string_ok("trim(upper(\"  abc   \"))");
+    check_compile_string_ok("trim(substr(\"  abc   \", 2, 5))");
+    check_compile_string_ok("\"\\\\escaped string\\\\\"");
 }
 
 void test_sizeof(void)
@@ -1046,10 +1053,10 @@ void test_funcs_number(void)
     yy_token_t date = {0};
 
     // length()
-    token = func_length(token_string("xxx", 3));
+    token = func_length(token_string("xxx", 3), NULL);
     TEST_CHECK(token.type == YY_TOKEN_NUMBER);
     TEST_CHECK(token.number_val == 3);
-    token = func_length(token_bool(true));
+    token = func_length(token_bool(true), NULL);
     TEST_CHECK(token.type == YY_TOKEN_ERROR);
 
     // datepart()
@@ -1412,6 +1419,11 @@ void test_funcs_bool(void)
 
 void test_funcs_string(void)
 {
+    char str[] = "BOBITO!hi ";
+
+    rotate_mem(str, strlen(str), 3);
+    printf("rotate = %s\n", str);
+
     // TODO 
 
     // upper()

@@ -89,19 +89,7 @@ SOFTWARE.
 #define token_bool(val_)         (yy_token_t){ .bool_val = val_                     , .type = YY_TOKEN_BOOL     }
 #define token_number(val_)       (yy_token_t){ .number_val = val_                   , .type = YY_TOKEN_NUMBER   }
 #define token_datetime(val_)     (yy_token_t){ .datetime_val = val_                 , .type = YY_TOKEN_DATETIME }
-#define token_string(ptr_, len_) (yy_token_t){ .str_val = {.ptr = ptr_, .len = len_}, .type = YY_TOKEN_STRING   }
-
-// types for pure functions
-typedef yy_token_t (*yy_func_0)(void);
-typedef yy_token_t (*yy_func_1)(yy_token_t);
-typedef yy_token_t (*yy_func_2)(yy_token_t, yy_token_t);
-typedef yy_token_t (*yy_func_3)(yy_token_t, yy_token_t, yy_token_t);
-
-// types for impure functions
-typedef yy_token_t (*yy_func_0_x)(yy_stack_t *);
-typedef yy_token_t (*yy_func_1_x)(yy_token_t, yy_stack_t *);
-typedef yy_token_t (*yy_func_2_x)(yy_token_t, yy_token_t, yy_stack_t *);
-typedef yy_token_t (*yy_func_3_x)(yy_token_t, yy_token_t, yy_token_t, yy_stack_t *);
+#define token_string(ptr_, len_) (yy_token_t){ .str_val = {.ptr = ptr_, .len = (uint32_t)(len_)}, .type = YY_TOKEN_STRING   }
 
 typedef enum yy_symbol_e
 {
@@ -127,7 +115,6 @@ typedef enum yy_symbol_e
     YY_SYMBOL_LESS_EQUALS_OP,       //!< <=
     YY_SYMBOL_GREAT_OP,             //!< >
     YY_SYMBOL_GREAT_EQUALS_OP,      //!< >=
-    YY_SYMBOL_NOT_OP,               //!< !
     YY_SYMBOL_PLUS_OP,              //!< + (prefix)
     YY_SYMBOL_MINUS_OP,             //!< - (prefix)
     YY_SYMBOL_ADDITION_OP,          //!< + (infix)
@@ -151,6 +138,7 @@ typedef enum yy_symbol_e
     YY_SYMBOL_CEIL,                 //!< ceil
     YY_SYMBOL_FLOOR,                //!< floor
     YY_SYMBOL_NOW,                  //!< now
+    YY_SYMBOL_NOT,                  //!< not
     YY_SYMBOL_ISINF,                //!< isinf
     YY_SYMBOL_ISNAN,                //!< isnan
     YY_SYMBOL_DATEPART,             //!< datepart
@@ -200,8 +188,20 @@ typedef struct yy_identifier_t
 typedef struct yy_eval_ctx_t
 {
     yy_stack_t *stack;              //!< Stack values.
-    uint32_t mem_len;               //!< Used memory length.
+    char *tmp_str;                  //!< Temporary memory used for intermediate strings.
 } yy_eval_ctx_t;
+
+// types for pure functions
+typedef yy_token_t (*yy_func_0)(void);
+typedef yy_token_t (*yy_func_1)(yy_token_t);
+typedef yy_token_t (*yy_func_2)(yy_token_t, yy_token_t);
+typedef yy_token_t (*yy_func_3)(yy_token_t, yy_token_t, yy_token_t);
+
+// types for impure functions
+typedef yy_token_t (*yy_func_0_x)(yy_eval_ctx_t *);
+typedef yy_token_t (*yy_func_1_x)(yy_token_t, yy_eval_ctx_t *);
+typedef yy_token_t (*yy_func_2_x)(yy_token_t, yy_token_t, yy_eval_ctx_t *);
+typedef yy_token_t (*yy_func_3_x)(yy_token_t, yy_token_t, yy_token_t, yy_eval_ctx_t *);
 
 // Days in month
 static const int days_in_month[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
@@ -209,17 +209,17 @@ static const int days_in_month[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 
 // Forward declarations
 static void parse_expr_number(yy_parser_t *parser);
 static void parse_expr_string(yy_parser_t *parser);
-static yy_token_t func_now(yy_stack_t *stack);
+static yy_token_t func_now(yy_eval_ctx_t *ctx);
 static yy_token_t func_datepart(yy_token_t date, yy_token_t part);
 static yy_token_t func_dateadd(yy_token_t date, yy_token_t value, yy_token_t part);
 static yy_token_t func_dateset(yy_token_t date, yy_token_t value, yy_token_t part);
 static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part);
-static yy_token_t func_trim(yy_token_t str);
-static yy_token_t func_lower(yy_token_t str, yy_stack_t *stack);
-static yy_token_t func_upper(yy_token_t str, yy_stack_t *stack);
-static yy_token_t func_concat(yy_token_t str1, yy_token_t str2, yy_stack_t *stack);
-static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len);
-static yy_token_t func_length(yy_token_t str);
+static yy_token_t func_trim(yy_token_t str, yy_eval_ctx_t *ctx);
+static yy_token_t func_lower(yy_token_t str, yy_eval_ctx_t *ctx);
+static yy_token_t func_upper(yy_token_t str, yy_eval_ctx_t *ctx);
+static yy_token_t func_concat(yy_token_t str1, yy_token_t str2, yy_eval_ctx_t *ctx);
+static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len, yy_eval_ctx_t *ctx);
+static yy_token_t func_length(yy_token_t str, yy_eval_ctx_t *ctx);
 static yy_token_t func_abs(yy_token_t x);
 static yy_token_t func_ceil(yy_token_t x);
 static yy_token_t func_floor(yy_token_t x);
@@ -281,6 +281,7 @@ static const yy_identifier_t identifiers[] =
     { "max",       YY_SYMBOL_MAX       },
     { "min",       YY_SYMBOL_MIN       },
     { "mod",       YY_SYMBOL_MODULO    },
+    { "not",       YY_SYMBOL_NOT       },
     { "now",       YY_SYMBOL_NOW       },
     { "pow",       YY_SYMBOL_POWER     },
     { "sin",       YY_SYMBOL_SIN       },
@@ -316,7 +317,6 @@ static const yy_token_t symbol_to_token[] =
     // [YY_SYMBOL_COMMA]        = { .type = YY_TOKEN_NULL     },
 
     [YY_SYMBOL_POWER_OP]        = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_pow        , 2, .precedence = 2) },
-    [YY_SYMBOL_NOT_OP]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_not        , 1, .precedence = 3) },
     [YY_SYMBOL_MINUS_OP]        = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_minus      , 1, .precedence = 3, .right_to_left = true) },
     [YY_SYMBOL_PLUS_OP]         = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_ident      , 1, .precedence = 3, .right_to_left = true) },
     [YY_SYMBOL_PRODUCT_OP]      = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_mult       , 2, .precedence = 4) },
@@ -332,6 +332,7 @@ static const yy_token_t symbol_to_token[] =
     [YY_SYMBOL_DISTINCT_OP]     = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_ne         , 2, .precedence = 7) },
     [YY_SYMBOL_AND_OP]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_and        , 2, .precedence = 8) },
     [YY_SYMBOL_OR_OP]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_or         , 2, .precedence = 9) },
+    [YY_SYMBOL_NOT]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_not        , 1) },
     [YY_SYMBOL_ISINF]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_isinf      , 1) },
     [YY_SYMBOL_ISNAN]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_isnan      , 1) },
     [YY_SYMBOL_ABS]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_abs        , 1) },
@@ -351,12 +352,12 @@ static const yy_token_t symbol_to_token[] =
     [YY_SYMBOL_DATEADD]         = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_dateadd    , 3) },
     [YY_SYMBOL_DATESET]         = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_dateset    , 3) },
     [YY_SYMBOL_DATETRUNC]       = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_datetrunc  , 2) },
-    [YY_SYMBOL_LENGTH]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_length     , 1) },
+    [YY_SYMBOL_LENGTH]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_length     , 1, .is_not_pure = true) },
     [YY_SYMBOL_LOWER]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_lower      , 1, .is_not_pure = true) },
     [YY_SYMBOL_UPPER]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_upper      , 1, .is_not_pure = true) },
-    [YY_SYMBOL_TRIM]            = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_trim       , 1) },
+    [YY_SYMBOL_TRIM]            = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_trim       , 1, .is_not_pure = true) },
     [YY_SYMBOL_CONCAT_OP]       = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_concat     , 2, .precedence = 5, .is_not_pure = true) },
-    [YY_SYMBOL_SUBSTR]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_substr     , 3) },
+    [YY_SYMBOL_SUBSTR]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_substr     , 3, .is_not_pure = true) },
     [YY_SYMBOL_MIN]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_min        , 2) },
     [YY_SYMBOL_MAX]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_max        , 2) },
     [YY_SYMBOL_END]             = { .type = YY_TOKEN_NULL }
@@ -875,14 +876,14 @@ static yy_error_e read_symbol(const char *begin, const char *end, yy_symbol_t *s
         default: return YY_ERROR_SYNTAX;
     }
 
-NEXT_EXCLAMATION: // !, !=
+NEXT_EXCLAMATION: // !=
 
     if (unlikely(++ptr == end))
-        return_ok(YY_SYMBOL_NOT_OP, 1);
+        return YY_ERROR_SYNTAX;
 
     switch (*ptr) {
         case '=': return_ok(YY_SYMBOL_DISTINCT_OP, 2);
-        default: return_ok(YY_SYMBOL_NOT_OP, 1);
+        default: return YY_ERROR_SYNTAX;
     }
 
 NEXT_AMPERSAND: // &&
@@ -1539,8 +1540,8 @@ static void parse_term_string(yy_parser_t *parser)
             parse_expr_string(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
-        case YY_SYMBOL_MAX:
         case YY_SYMBOL_MIN:
+        case YY_SYMBOL_MAX:
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
             parse_expr_string(parser);
@@ -1795,55 +1796,59 @@ yy_error_e yy_compile_string(const char *begin, const char *end, yy_stack_t *sta
 }
 
 INLINE
-static yy_token_t eval_func(yy_stack_t *stack, yy_func_t func)
+static yy_token_t eval_func(yy_func_t func, yy_eval_ctx_t *ctx)
 {
+    yy_stack_t *stack = ctx->stack;
+
     if (!func.ptr) 
         return token_error(YY_ERROR_EVAL);
 
-    if (func.num_args == 0) {
-        if (func.is_not_pure)
-            return ((yy_func_0_x) func.ptr)(stack);
-        else
-            return ((yy_func_0) func.ptr)();
+    switch (func.num_args)
+    {
+        case 0:
+        {
+            if (func.is_not_pure)
+                return ((yy_func_0_x) func.ptr)(ctx);
+            else
+                return ((yy_func_0) func.ptr)();
+        }
+
+        case 1:
+        {
+            yy_token_t *token1 = get(stack, 0);
+
+            if (func.is_not_pure)
+                return ((yy_func_1_x) func.ptr)(*token1, ctx);
+            else
+                return ((yy_func_1) func.ptr)(*token1);
+        }
+
+        case 2:
+        {
+            yy_token_t *token1 = get(stack, 0);
+            yy_token_t *token2 = get(stack, 1);
+
+            if (func.is_not_pure)
+                return ((yy_func_2_x) func.ptr)(*token2, *token1, ctx);
+            else
+                return ((yy_func_2) func.ptr)(*token2, *token1);
+        }
+
+        case 3:
+        {
+            yy_token_t *token1 = get(stack, 0);
+            yy_token_t *token2 = get(stack, 1);
+            yy_token_t *token3 = get(stack, 2);
+
+            if (func.is_not_pure)
+                return ((yy_func_3_x) func.ptr)(*token3, *token2, *token1, ctx);
+            else
+                return ((yy_func_3) func.ptr)(*token3, *token2, *token1);
+        }
+
+        default:
+            return token_error(YY_ERROR_EVAL);
     }
-
-    if (stack->len < func.num_args)
-        return token_error(YY_ERROR_EVAL);
-
-    yy_token_t *token1 = get(stack, 0);
-    assert(token1);
-    assert(is_token_fixed_value(token1->type));
-
-    if (func.num_args == 1) {
-        if (func.is_not_pure)
-            return ((yy_func_1_x) func.ptr)(*token1, stack);
-        else
-            return ((yy_func_1) func.ptr)(*token1);
-    }
-
-    yy_token_t *token2 = get(stack, 1);
-    assert(token2);
-    assert(is_token_fixed_value(token2->type));
-
-    if (func.num_args == 2) {
-        if (func.is_not_pure)
-            return ((yy_func_2_x) func.ptr)(*token2, *token1, stack);
-        else
-            return ((yy_func_2) func.ptr)(*token2, *token1);
-    }
-
-    yy_token_t *token3 = get(stack, 2);
-    assert(token3);
-    assert(is_token_fixed_value(token3->type));
-
-    if (func.num_args == 3) {
-        if (func.is_not_pure)
-            return ((yy_func_3_x) func.ptr)(*token3, *token2, *token1, stack);
-        else
-            return ((yy_func_3) func.ptr)(*token3, *token2, *token1);
-    }
-
-    return token_error(YY_ERROR_EVAL);
 }
 
 /**
@@ -1853,6 +1858,8 @@ yy_token_t yy_eval(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolv
 {
     if (!stack || !aux || !stack->data || !stack->len || !aux->data)
         return token_error(YY_ERROR);
+
+    yy_eval_ctx_t ctx = {.stack = aux, .tmp_str = (char *) &aux->data[aux->reserved]};
 
     aux->len = 0;
 
@@ -1888,7 +1895,7 @@ yy_token_t yy_eval(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolv
             }
             case YY_TOKEN_FUNCTION:
             {
-                yy_token_t tmp = eval_func(aux, stack->data[i].function);
+                yy_token_t tmp = eval_func(stack->data[i].function, &ctx);
                 if (tmp.type == YY_TOKEN_ERROR)
                     return tmp;
 
@@ -2356,14 +2363,17 @@ DATETIME_ERROR:
 }
 
 // ==================================================
+// Every func_xxx() receiving an YY_TYPE_STRING has to
+// manage the aux memory (yes, it's weird).
+// ==================================================
 
 #define UNUSED(x) (void)(x)
 
 // --- Functions returning a datetime
 
-static yy_token_t func_now(yy_stack_t *stack)
+static yy_token_t func_now(yy_eval_ctx_t *ctx)
 {
-    UNUSED(stack);
+    UNUSED(ctx);
 
     struct timeval stv = {0};
 
@@ -2505,7 +2515,96 @@ static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part)
 
 // --- Functions returning a string
 
-static yy_token_t func_trim(yy_token_t str)
+static void rotate_left(void *p, size_t len, size_t lshift)
+{
+    unsigned char *d = (unsigned char *) p;
+    size_t start;
+    size_t dx, sx;
+    size_t todo = len;
+    unsigned char x;
+
+    if (!len)
+        return;
+
+    lshift %= len;
+
+    if (!lshift)
+        return;
+
+    for (start = 0; todo; start++) {
+        x = d[start];
+        dx = start;
+        while (1) {
+            todo--;
+            sx = dx + lshift;
+            if (sx >= len || sx < dx /*overflow*/)
+                sx -= len;
+            if (sx == start) {
+                d[dx] = x;
+                break;
+            }
+            d[dx] = d[sx];
+            dx = sx;
+        }
+    }
+}
+
+// @see https://stackoverflow.com/questions/44974592/rotate-a-string-in-c
+static void rotate_mem(void *p, size_t len, ssize_t rshift)
+{
+    if (!len)
+        return;
+
+    rshift = rshift % len;
+    size_t lshift = (rshift < 0 ? (size_t) -rshift : len - rshift);
+
+    rotate_left(p, len, lshift);
+}
+
+static bool is_temp_value(const yy_eval_ctx_t *ctx, const yy_str_t *str)
+{
+    return (ctx && (char *) ctx->stack->data < str->ptr && str->ptr < (char *) &ctx->stack->data[ctx->stack->reserved]);
+}
+
+static char * alloc_tmp_mem(yy_eval_ctx_t *ctx, uint32_t size)
+{
+    assert(ctx && ctx->stack && ctx->tmp_str);
+    assert((char *) &ctx->stack->data[ctx->stack->len] <= ctx->tmp_str);
+    assert(ctx->tmp_str <= (char *) &ctx->stack->data[ctx->stack->reserved]);
+
+    if (ctx->tmp_str - size < (char *) &ctx->stack[ctx->stack->len])
+        return NULL;
+
+    ctx->tmp_str -= size;
+
+    return ctx->tmp_str;
+}
+
+INLINE
+static void free_tmp_mem(yy_eval_ctx_t *ctx, uint32_t size)
+{
+    assert(ctx && ctx->stack && ctx->tmp_str);
+    assert((char *) &ctx->stack->data[ctx->stack->len] <= ctx->tmp_str);
+    assert(ctx->tmp_str + size <= (char *) &ctx->stack->data[ctx->stack->reserved]);
+
+    ctx->tmp_str += size;
+}
+
+static bool copy_str_to_mem(yy_eval_ctx_t *ctx, yy_str_t *str)
+{
+    if (is_temp_value(ctx, str))
+        return true;
+    
+    char *ptr = alloc_tmp_mem(ctx, str->len);
+    if (ptr == NULL)
+        return false;
+
+    str->ptr = (const char *) memcpy(ptr, str->ptr, str->len);
+
+    return true;
+}
+
+static yy_token_t func_trim(yy_token_t str, yy_eval_ctx_t *ctx)
 {
     if (str.type != YY_TOKEN_STRING || !str.str_val.ptr)
         return token_error(YY_ERROR_VALUE);
@@ -2519,47 +2618,111 @@ static yy_token_t func_trim(yy_token_t str)
     while (ptr < end && isspace(*(end-1)))
         --end;
 
-    return token_string(ptr, end - ptr);
+    uint32_t new_len = end - ptr;
+    uint32_t diff = str.str_val.len - new_len;
+
+    // case temp string
+    if (diff && is_temp_value(ctx, &str.str_val)) {
+        assert(str.str_val.ptr == ctx->tmp_str);
+        ptr = (char *) memmove((char *) str.str_val.ptr + diff, ptr, new_len);
+        free_tmp_mem(ctx, diff);
+    }
+
+    return token_string(ptr, new_len);
 }
 
-static yy_token_t func_lower(yy_token_t str, yy_stack_t *stack)
+static yy_token_t func_lower(yy_token_t str, yy_eval_ctx_t *ctx)
 {
-    UNUSED(stack);
-
     if (str.type != YY_TOKEN_STRING || !str.str_val.ptr)
         return token_error(YY_ERROR_VALUE);
 
-    // TODO
+    if (!copy_str_to_mem(ctx, &str.str_val))
+        return token_error(YY_ERROR_MEM);
+
+    char *ptr = (char *) str.str_val.ptr;
+
+    for (uint32_t i = 0; i < str.str_val.len; i++, ++ptr)
+        *ptr = tolower((unsigned char) *ptr);
 
     return str;
 }
 
-static yy_token_t func_upper(yy_token_t str, yy_stack_t *stack)
+static yy_token_t func_upper(yy_token_t str, yy_eval_ctx_t *ctx)
 {
-    UNUSED(stack);
-
     if (str.type != YY_TOKEN_STRING || !str.str_val.ptr)
         return token_error(YY_ERROR_VALUE);
 
-    // TODO
+    if (!copy_str_to_mem(ctx, &str.str_val))
+        return token_error(YY_ERROR_MEM);
+
+    char *ptr = (char *) str.str_val.ptr;
+
+    for (uint32_t i = 0; i < str.str_val.len; i++, ++ptr)
+        *ptr = toupper((unsigned char) *ptr);
 
     return str;
 }
 
-static yy_token_t func_concat(yy_token_t str1, yy_token_t str2, yy_stack_t *stack)
+static yy_token_t func_concat(yy_token_t str1, yy_token_t str2, yy_eval_ctx_t *ctx)
 {
-    UNUSED(stack);
-
     if (str1.type != YY_TOKEN_STRING || str2.type != YY_TOKEN_STRING || !str1.str_val.ptr || !str2.str_val.ptr)
         return token_error(YY_ERROR_VALUE);
 
-    // TODO
+    bool is_str1_temp = is_temp_value(ctx, &str1.str_val);
+    bool is_str2_temp = is_temp_value(ctx, &str2.str_val);
+    uint32_t new_len = str1.str_val.len + str2.str_val.len;
+    char *ptr = NULL;
 
-    return str1;
+    // both strings in temp memory (str2+str1)
+    if (is_str1_temp && is_str2_temp)
+    {
+        assert(str2.str_val.ptr == ctx->tmp_str);
+        assert(str1.str_val.ptr == str2.str_val.ptr + str2.str_val.len);
+        rotate_mem((void *) str2.str_val.ptr, new_len, str1.str_val.len);
+        str2.str_val.len = new_len;
+        return str2;
+    }
+
+    // case str1 fixed and str2 on top of temp memory
+    if (!is_str1_temp && is_str2_temp)
+    {
+        assert(str2.str_val.ptr == ctx->tmp_str);
+        if (!copy_str_to_mem(ctx, &str1.str_val))
+            return token_error(YY_ERROR_MEM);
+        str1.str_val.len += str2.str_val.len;
+        return str1;
+    }
+
+    // case str1 on top of temp memory and str2 fixed
+    if (is_str1_temp && !is_str2_temp)
+    {
+        assert(str1.str_val.ptr == ctx->tmp_str);
+        if ((ptr = alloc_tmp_mem(ctx, str2.str_val.len)) == NULL)
+            return token_error(YY_ERROR_MEM);
+        memmove(ptr, str1.str_val.ptr, str1.str_val.len);
+        memmove(ptr + str1.str_val.len, str2.str_val.ptr, str2.str_val.len);
+        return token_string(ptr, new_len);
+    }
+
+    // str1 and str2 are fixed strings
+    if (!is_str1_temp && !is_str2_temp)
+    {
+        if ((ptr = alloc_tmp_mem(ctx, new_len)) == NULL)
+            return token_error(YY_ERROR_MEM);
+
+        memcpy(ptr, str1.str_val.ptr, str1.str_val.len);
+        memcpy(ptr + str1.str_val.len, str2.str_val.ptr, str2.str_val.len);
+
+        return token_string(ptr, new_len);
+    }
+
+    return token_error(YY_ERROR);
 }
 
-static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len)
+static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len, yy_eval_ctx_t *ctx)
 {
+    UNUSED(ctx);
+
     if (str.type != YY_TOKEN_STRING || !str.str_val.ptr)
         return token_error(YY_ERROR_VALUE);
 
@@ -2570,17 +2733,32 @@ static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len)
     const char *new_ptr = str.str_val.ptr + pos;
     uint32_t new_len = CLAMP((int) len.number_val, 0, (int)(str.str_val.len - pos));
 
+    // case temp string
+    if (is_temp_value(ctx, &str.str_val)) {
+        assert(str.str_val.ptr == ctx->tmp_str);
+        uint32_t diff = str.str_val.len - new_len;
+        new_ptr = (char *) memmove((char *) str.str_val.ptr + diff, new_ptr, new_len);
+        free_tmp_mem(ctx, diff);
+    }
+
     return token_string(new_ptr, new_len);
 }
 
 // --- Functions returning a number
 
-static yy_token_t func_length(yy_token_t str)
+static yy_token_t func_length(yy_token_t str, yy_eval_ctx_t *ctx)
 {
     if (str.type != YY_TOKEN_STRING)
         return token_error(YY_ERROR_VALUE);
 
-    return token_number(str.str_val.len);
+    uint32_t len = str.str_val.len;
+
+    if (is_temp_value(ctx, &str.str_val)) {
+        assert(str.str_val.ptr == ctx->tmp_str);
+        free_tmp_mem(ctx, len);
+    }
+
+    return token_number(len);
 }
 
 static yy_token_t func_datepart(yy_token_t date, yy_token_t part)
@@ -2705,22 +2883,6 @@ static yy_token_t func_ident(yy_token_t x)
     return x;
 }
 
-static yy_token_t func_isinf(yy_token_t x)
-{
-    if (x.type != YY_TOKEN_NUMBER)
-        return token_error(YY_ERROR_VALUE);
-
-    return token_bool(isinf(x.number_val));
-}
-
-static yy_token_t func_isnan(yy_token_t x)
-{
-    if (x.type != YY_TOKEN_NUMBER)
-        return token_error(YY_ERROR_VALUE);
-
-    return token_bool(isnan(x.number_val));
-}
-
 static yy_token_t func_addition(yy_token_t x, yy_token_t y)
 {
     if (x.type != YY_TOKEN_NUMBER || y.type != YY_TOKEN_NUMBER)
@@ -2775,9 +2937,28 @@ static yy_token_t func_pow(yy_token_t x, yy_token_t y)
 
 // --- Functions returning a boolean
 
-static yy_token_t func_not(yy_token_t x) {
-    UNUSED(x);
-    return (yy_token_t){0};
+static yy_token_t func_not(yy_token_t x)
+{
+    if (x.type != YY_TOKEN_BOOL)
+        return token_error(YY_ERROR_VALUE);
+
+    return token_bool(!x.bool_val);
+}
+
+static yy_token_t func_isinf(yy_token_t x)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    return token_bool(isinf(x.number_val));
+}
+
+static yy_token_t func_isnan(yy_token_t x)
+{
+    if (x.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    return token_bool(isnan(x.number_val));
 }
 
 static yy_token_t func_lt(yy_token_t x, yy_token_t y) {
