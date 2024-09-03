@@ -99,6 +99,7 @@ typedef enum yy_symbol_e
     YY_SYMBOL_NUMBER_VAL,           //!< 1234, 3.14159, 0.24e-4
     YY_SYMBOL_DATETIME_VAL,         //!< 2024-07-24T07:57:14.494Z
     YY_SYMBOL_STRING_VAL,           //!< "s3cr3t"
+    YY_SYMBOL_ESCAPED_STRING_VAL,   //!< "ends with new-line: \n"
     YY_SYMBOL_VARIABLE,             //!< ${x}
     YY_SYMBOL_CONST_E,              //!< E
     YY_SYMBOL_CONST_PI,             //!< PI
@@ -151,6 +152,7 @@ typedef enum yy_symbol_e
     YY_SYMBOL_TRIM,                 //!< trim
     YY_SYMBOL_CONCAT_OP,            //!< concat
     YY_SYMBOL_SUBSTR,               //!< substr
+    YY_SYMBOL_UNESCAPE,             //!< unescape
     YY_SYMBOL_END,                  //!< No more symbols (maintain at the end of list)
 } yy_symbol_e;
 
@@ -207,6 +209,7 @@ typedef yy_token_t (*yy_func_3_x)(yy_token_t, yy_token_t, yy_token_t, yy_eval_ct
 static const int days_in_month[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 // Forward declarations
+static bool is_temp_value(const yy_eval_ctx_t *ctx, const yy_str_t *str);
 static void parse_expr_number(yy_parser_t *parser);
 static void parse_expr_string(yy_parser_t *parser);
 static yy_token_t func_now(yy_eval_ctx_t *ctx);
@@ -214,6 +217,7 @@ static yy_token_t func_datepart(yy_token_t date, yy_token_t part);
 static yy_token_t func_dateadd(yy_token_t date, yy_token_t value, yy_token_t part);
 static yy_token_t func_dateset(yy_token_t date, yy_token_t value, yy_token_t part);
 static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part);
+static yy_token_t func_unescape(yy_token_t str, yy_eval_ctx_t *ctx);
 static yy_token_t func_trim(yy_token_t str, yy_eval_ctx_t *ctx);
 static yy_token_t func_lower(yy_token_t str, yy_eval_ctx_t *ctx);
 static yy_token_t func_upper(yy_token_t str, yy_eval_ctx_t *ctx);
@@ -291,6 +295,7 @@ static const yy_identifier_t identifiers[] =
     { "trim",      YY_SYMBOL_TRIM      },
     { "true",      YY_SYMBOL_TRUE      },
     { "trunc",     YY_SYMBOL_TRUNC     },
+    { "unescape",  YY_SYMBOL_UNESCAPE  },
     { "upper",     YY_SYMBOL_UPPER     },
 };
 
@@ -300,10 +305,11 @@ static const yy_identifier_t identifiers[] =
 
 static const yy_token_t symbol_to_token[] =
 {
-    [YY_SYMBOL_NUMBER_VAL]      = { .type = YY_TOKEN_NUMBER   }, 
-    [YY_SYMBOL_DATETIME_VAL]    = { .type = YY_TOKEN_DATETIME }, 
-    [YY_SYMBOL_STRING_VAL]      = { .type = YY_TOKEN_STRING   }, 
-    [YY_SYMBOL_VARIABLE]        = { .type = YY_TOKEN_VARIABLE }, 
+    [YY_SYMBOL_NUMBER_VAL]         = { .type = YY_TOKEN_NUMBER   }, 
+    [YY_SYMBOL_DATETIME_VAL]       = { .type = YY_TOKEN_DATETIME }, 
+    [YY_SYMBOL_STRING_VAL]         = { .type = YY_TOKEN_STRING   }, 
+    [YY_SYMBOL_ESCAPED_STRING_VAL] = { .type = YY_TOKEN_STRING   }, 
+    [YY_SYMBOL_VARIABLE]           = { .type = YY_TOKEN_VARIABLE }, 
 
     [YY_SYMBOL_TRUE]            = { .type = YY_TOKEN_BOOL    , .bool_val = true       },
     [YY_SYMBOL_FALSE]           = { .type = YY_TOKEN_BOOL    , .bool_val = false      },
@@ -358,6 +364,7 @@ static const yy_token_t symbol_to_token[] =
     [YY_SYMBOL_TRIM]            = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_trim       , 1, .is_not_pure = true) },
     [YY_SYMBOL_CONCAT_OP]       = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_concat     , 2, .precedence = 5, .is_not_pure = true) },
     [YY_SYMBOL_SUBSTR]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_substr     , 3, .is_not_pure = true) },
+    [YY_SYMBOL_UNESCAPE]        = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_unescape   , 1, .is_not_pure = true) },
     [YY_SYMBOL_MIN]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_min        , 2) },
     [YY_SYMBOL_MAX]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_max        , 2) },
     [YY_SYMBOL_END]             = { .type = YY_TOKEN_NULL }
@@ -684,6 +691,7 @@ NUMBER_READ_FLOAT:
  * 
  * Returned type:
  *   - YY_SYMBOL_STRING_VAL
+ *   - YY_SYMBOL_ESCAPED_STRING_VAL
  * 
  * @param[in] begin String to parse (without initial spaces).
  * @param[in] end One char after the string end.
@@ -696,6 +704,7 @@ static yy_error_e read_symbol_string(const char *begin, const char *end, yy_symb
 {
     assert(begin && end && begin <= end && symbol);
 
+    bool is_escaped = false;
     const char *ptr = begin;
 
     if (end - ptr < 2 || *ptr != '"') // no place for ""
@@ -722,8 +731,12 @@ STRING_ESCAPED_CHAR:
         case '"': 
         case '\\': 
         case 'n': 
-        case 't': goto STRING_NEXT_CHAR;
-        default: return YY_ERROR_SYNTAX;
+        case 't':
+            is_escaped = true;
+            goto STRING_NEXT_CHAR;
+        default:
+            goto STRING_NEXT_CHAR;
+            //return YY_ERROR_SYNTAX;
     }
 
 STRING_END:
@@ -731,7 +744,7 @@ STRING_END:
     ++ptr;
     assert(ptr - begin > 1); // minimum size is ""
 
-    symbol->type = YY_SYMBOL_STRING_VAL;
+    symbol->type = (is_escaped ? YY_SYMBOL_ESCAPED_STRING_VAL : YY_SYMBOL_STRING_VAL);
     symbol->lexeme.ptr = begin;
     symbol->lexeme.len = (uint32_t) (ptr - begin);
     symbol->str_val.ptr = begin + 1;
@@ -1033,6 +1046,7 @@ static yy_token_t create_token(const yy_symbol_t *symbol)
         case YY_SYMBOL_NUMBER_VAL:
         case YY_SYMBOL_DATETIME_VAL:
         case YY_SYMBOL_STRING_VAL:
+        case YY_SYMBOL_ESCAPED_STRING_VAL:
         case YY_SYMBOL_VARIABLE:
             token.str_val = symbol->str_val;
             break;
@@ -1112,10 +1126,9 @@ static bool simplify_stack(yy_parser_t *parser)
     if (!token0 || token0->type != YY_TOKEN_FUNCTION)
         return false;
 
-    if (token0->function.is_not_pure)
-        return false;
+    assert((int)stack->len >= token0->function.num_args + 1);
 
-    if ((int)stack->len < token0->function.num_args + 1)
+    if (token0->function.is_not_pure)
         return false;
 
     if (token0->function.num_args == 0) {
@@ -1224,6 +1237,10 @@ static void process_current_symbol(yy_parser_t *parser)
     if (is_token_value(token.type))
     {
         push_to_stack(parser, &token);
+
+        if (type == YY_SYMBOL_ESCAPED_STRING_VAL)
+            push_to_stack(parser, &symbol_to_token[YY_SYMBOL_UNESCAPE]);
+
         return;
     }
 
@@ -1529,6 +1546,7 @@ static void parse_term_string(yy_parser_t *parser)
     switch (parser->curr_symbol.type)
     {
         case YY_SYMBOL_STRING_VAL:
+        case YY_SYMBOL_ESCAPED_STRING_VAL:
         case YY_SYMBOL_VARIABLE:
             consume(parser);
             break;
@@ -1851,10 +1869,7 @@ static yy_token_t eval_func(yy_func_t func, yy_eval_ctx_t *ctx)
     }
 }
 
-/**
- * Use stack also as memory pool.
- */
-yy_token_t yy_eval(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data)
+yy_token_t yy_eval_stack(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data)
 {
     if (!stack || !aux || !stack->data || !stack->len || !aux->data)
         return token_error(YY_ERROR);
@@ -1920,7 +1935,48 @@ yy_token_t yy_eval(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolv
     if (aux->len != 1)
         return token_error(YY_ERROR_EVAL);
 
+    assert (aux->data[0].type != YY_TOKEN_STRING || !is_temp_value(&ctx, &aux->data[0].str_val) || aux->data[0].str_val.ptr == ctx.tmp_str);
+
     return aux->data[0];
+}
+
+yy_token_t yy_eval_number(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data)
+{
+    yy_error_e rc = yy_compile_number(begin, end, stack, NULL);
+
+    if (rc != YY_OK)
+        return token_error(rc);
+
+    uint32_t reserved = stack->reserved - stack->len;
+    yy_stack_t aux = {.data = stack->data + stack->len, .reserved = reserved, .len = 0};
+
+    return yy_eval_stack(stack, &aux, resolve, data);
+}
+
+yy_token_t yy_eval_datetime(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data)
+{
+    yy_error_e rc = yy_compile_datetime(begin, end, stack, NULL);
+
+    if (rc != YY_OK)
+        return token_error(rc);
+
+    uint32_t reserved = stack->reserved - stack->len;
+    yy_stack_t aux = {.data = stack->data + stack->len, .reserved = reserved, .len = 0};
+
+    return yy_eval_stack(stack, &aux, resolve, data);
+}
+
+yy_token_t yy_eval_string(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data)
+{
+    yy_error_e rc = yy_compile_string(begin, end, stack, NULL);
+
+    if (rc != YY_OK)
+        return token_error(rc);
+
+    uint32_t reserved = stack->reserved - stack->len;
+    yy_stack_t aux = {.data = stack->data + stack->len, .reserved = reserved, .len = 0};
+
+    return yy_eval_stack(stack, &aux, resolve, data);
 }
 
 yy_token_t yy_parse_number(const char *begin, const char *end)
@@ -1954,20 +2010,25 @@ yy_token_t yy_parse_number(const char *begin, const char *end)
         return token_number(+symbol.number_val);
 }
 
-/**
- * Parse a boolean.
- * Accepted values = true, True, TRUE, false, False, FALSE.
- *
- * Parse whole content (^.*$).
- * Anything distinct than allowed values is reported as error.
- * 
- * @param[in] begin String to parse (without initial spaces).
- * @param[in] end One char after the string end.
- * @param[out] symbol Parsed symbol.
- * 
- * @return  Token with the result. 
- *          On error, token.type == YY_TOKEN_ERROR.
- */
+yy_token_t yy_parse_string(const char *begin, const char *end)
+{
+    if (!begin || !end || begin > end)
+        return token_error(YY_ERROR_VALUE);
+    
+    size_t len = end - begin;
+
+    // string too long
+    if (len > UINT32_MAX)
+        return token_error(YY_ERROR_VALUE);
+
+    // NUL in the midle
+    for (const char *ptr = begin; ptr < end; ++ptr)
+        if (*ptr == 0)
+            return token_error(YY_ERROR_VALUE);
+
+    return token_string(begin, len);
+}
+
 yy_token_t yy_parse_bool(const char *begin, const char *end)
 {
     if (!begin || !end || begin >= end)
@@ -2519,9 +2580,8 @@ static void rotate_left(void *p, size_t len, size_t lshift)
 {
     unsigned char *d = (unsigned char *) p;
     size_t start;
-    size_t dx, sx;
+    size_t sx;
     size_t todo = len;
-    unsigned char x;
 
     if (!len)
         return;
@@ -2532,8 +2592,8 @@ static void rotate_left(void *p, size_t len, size_t lshift)
         return;
 
     for (start = 0; todo; start++) {
-        x = d[start];
-        dx = start;
+        unsigned char x = d[start];
+        size_t dx = start;
         while (1) {
             todo--;
             sx = dx + lshift;
@@ -2721,8 +2781,6 @@ static yy_token_t func_concat(yy_token_t str1, yy_token_t str2, yy_eval_ctx_t *c
 
 static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len, yy_eval_ctx_t *ctx)
 {
-    UNUSED(ctx);
-
     if (str.type != YY_TOKEN_STRING || !str.str_val.ptr)
         return token_error(YY_ERROR_VALUE);
 
@@ -2740,6 +2798,71 @@ static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len, 
         new_ptr = (char *) memmove((char *) str.str_val.ptr + diff, new_ptr, new_len);
         free_tmp_mem(ctx, diff);
     }
+
+    return token_string(new_ptr, new_len);
+}
+
+static yy_token_t func_unescape(yy_token_t str, yy_eval_ctx_t *ctx)
+{
+    if (str.type != YY_TOKEN_STRING || !str.str_val.ptr)
+        return token_error(YY_ERROR_VALUE);
+
+    if (!str.str_val.len)
+        return str;
+
+    uint32_t len = str.str_val.len;
+    uint32_t new_len = len;
+    const char *ptr = str.str_val.ptr;
+    char *new_ptr = NULL;
+    uint32_t diff = 0;
+
+    // compute unescaped string length
+    for (uint32_t i = 0; i < len - 1; i++, ++ptr) {
+        if (ptr[i] == '\\' && (ptr[i+1] == '\\' || ptr[i+1] == '"' || ptr[i+1] == 't' || ptr[i+1] == 'n')) {
+            new_len--;
+            ptr++;
+            i++;
+        }
+    }
+
+    diff = len - new_len;
+
+    if (!diff)
+        return str;
+
+    if (is_temp_value(ctx, &str.str_val)) {
+        assert(str.str_val.ptr == ctx->tmp_str);
+        new_ptr = (char *) str.str_val.ptr + diff;
+        free_tmp_mem(ctx, diff);
+    }
+    else {
+        new_ptr = alloc_tmp_mem(ctx, new_len);
+        if (!new_ptr)
+            return token_error(YY_ERROR_MEM);
+    }
+
+    ptr = str.str_val.ptr;
+
+    // unescape string
+    for (int i = len - 1, j = new_len - 1; i > 0; i--, j--)
+    {
+        new_ptr[j] = ptr[i];
+
+        if (ptr[i-1] == '\\')
+        {
+            switch (ptr[i])
+            {
+                case '"':  new_ptr[j] = '"';  i--; break;
+                case '\\': new_ptr[j] = '\\'; i--; break;
+                case 't':  new_ptr[j] = '\t'; i--; break;
+                case 'n':  new_ptr[j] = '\n'; i--; break;
+                default: break;
+            }
+        }
+    }
+
+    if (ptr[0] != '\\')
+        new_ptr[0] = ptr[0];
 
     return token_string(new_ptr, new_len);
 }

@@ -99,7 +99,7 @@ typedef struct yy_stack_t {
 /**
  * Parse a single value.
  * 
- * Use these functions to parse variable content, not expressions.
+ * Use these support functions to parse variable content, not expressions.
  * They are used to validate that string data adheres to the expected syntax. 
  * If you just want to create a token, don't use these functions, instead 
  * assign the type and value directly.
@@ -112,10 +112,10 @@ typedef struct yy_stack_t {
  * Features:
  *   - number: parse JSON-format numbers (RFC-7159).
  *   - datetime: parse ISO-8601 datetimes (ex. 2024-08-24T09:05:58.123Z, 2024-08-24, etc.).
- *   - string: parse non-quoted escaped strings (\n \t \" \\).
- *   - bool: accepted values: true, True, TRUE, false, False, FALSE
+ *   - string: parse non-quoted strings.
+ *   - bool: true, True, TRUE, false, False, FALSE.
  * 
- * @param[in] begin String to parse (without initial spaces).
+ * @param[in] begin String to parse (trimmed, without leading and trailing whitespaces).
  * @param[in] end One char after the string end.
  * 
  * @return Parsed value,
@@ -135,10 +135,10 @@ yy_token_t yy_parse(const char *begin, const char *end);
  * In the generic case, yy_compile(), we try to parse it in the following order:
  *   number, datetime, string, bool
  * 
- * Caution, variables and strings on the stack point to str input.
+ * Caution, variables and strings on the stack point to the str input.
  * Recode these values before deallocating str.
  * 
- * @param[in] begin String to parse (initial spaces are allowed).
+ * @param[in] begin String to parse.
  * @param[in] end One char after the string end.
  * @param[out] stack Reverse polish notation (rpn) stack.
  * @param[out] err Error location (can be NULL).
@@ -153,7 +153,7 @@ yy_error_e yy_compile_bool(const char *begin, const char *end, yy_stack_t *stack
 yy_error_e yy_compile(const char *begin, const char *end, yy_stack_t *stack, const char **err);
 
 /**
- * Evaluate a rpn stack.
+ * Evaluate an rpn stack.
  * 
  * @param[in] stack Reverse polish notation (rpn) stack.
  * @param[in] aux Memory used to evaluate the stack (to store intermediate values).
@@ -163,7 +163,25 @@ yy_error_e yy_compile(const char *begin, const char *end, yy_stack_t *stack, con
  * @return Result as token, 
  *         on error type=YY_TOKEN_ERROR and error contains the error detail.
  */
-yy_token_t yy_eval(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
+yy_token_t yy_eval_stack(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
+
+/**
+ * Evaluate an expression.
+ * 
+ * @param[in] begin String to parse.
+ * @param[in] end One char after the string end.
+ * @param[in] aux Auxiliar memory used to compile and evaluate.
+ * @param[in] resolve Function used to resolve variables (can be NULL if there are no variables).
+ * @param[in] data Data passed to the 'resolve' function.
+ * 
+ * @return Result as token, 
+ *         on error type=YY_TOKEN_ERROR and error contains the error detail.
+ */
+yy_token_t yy_eval_number(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
+yy_token_t yy_eval_datetime(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
+yy_token_t yy_eval_string(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
+yy_token_t yy_eval_bool(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
+yy_token_t yy_eval(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
 
 #ifdef __cplusplus
 }

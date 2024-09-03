@@ -117,6 +117,7 @@ strFunc     = <see list below>
 | string   | `trim`       | (strExpr)                     | Removes leading and trailing whitespaces |
 | string   | `lower`      | (strExpr)                     | Converts all characters to lowercase     |
 | string   | `upper`      | (strExpr)                     | Converts all characters to uppercase     |
+| string   | `unescape`   | (strExpr)                     | Replaces '\\\\', '\\n', '\\t' and '\\"'  |
 | string   | `+`          | (strExpr, strExpr)            | Concatenate two strings                  |
 | string   | `substr`     | (strExpr, numExpr, numExpr)   | Extracts a substring from a given string |
 | string   | `min`        | (strExpr, strExpr)            | Returns the smaller of two given values  |

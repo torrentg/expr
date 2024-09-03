@@ -88,6 +88,7 @@ const char * symbol_to_str(yy_symbol_e type)
         case YY_SYMBOL_TRIM: return "TRIM";
         case YY_SYMBOL_CONCAT_OP: return "CONCAT";
         case YY_SYMBOL_SUBSTR: return "SUBSTR";
+        case YY_SYMBOL_UNESCAPE: return "UNESCAPE";
         case YY_SYMBOL_NOT: return "NOT";
         case YY_SYMBOL_ISNAN: return "ISNAN";
         case YY_SYMBOL_ISINF: return "ISINF";
@@ -158,7 +159,7 @@ void print_stack(const yy_stack_t *stack)
 
     yy_token_t data[128] = {0};
     yy_stack_t aux = {.data = data, .len = 0, .reserved = sizeof(data)/sizeof(data[0])};
-    yy_token_t result = yy_eval(stack, &aux, NULL, NULL);
+    yy_token_t result = yy_eval_stack(stack, &aux, NULL, NULL);
 
     printf( " = ");
     print_token(result);
@@ -208,39 +209,6 @@ void check_parse_datetime_ko(const char *str)
     TEST_MSG("Case='%s', error=not-failed", str);
 }
 
-void _check_string_ok(const char *str, size_t len, const char *expected_val)
-{
-    yy_symbol_t symbol = {0};
-    size_t expected_len = strlen(expected_val);
-
-    yy_error_e rc = read_symbol_string(str, str + len, &symbol);
-
-    TEST_CHECK(rc == YY_OK);
-    TEST_MSG("Case='%.*s', error=failed", (int) len, str);
-    TEST_CHECK(symbol.type == YY_SYMBOL_STRING_VAL);
-    TEST_MSG("Case='%.*s', error=not-a-string", (int) len, str);
-    TEST_CHECK(symbol.lexeme.ptr == str);
-    TEST_MSG("Case='%.*s', error=invalid-lexeme-ptr", (int) len, str);
-    TEST_CHECK(symbol.lexeme.len == expected_len + 2);
-    TEST_MSG("Case='%.*s', error=invalid-lexeme-len", (int) len, str);
-    TEST_CHECK(symbol.str_val.len == expected_len);
-    TEST_MSG("Case='%.*s', error=invalid-string-len", (int) len, str);
-    TEST_CHECK(strncmp(symbol.str_val.ptr, expected_val, expected_len) == 0);
-    TEST_MSG("Case='%.*s', error=invalid-string-content", (int) len, str);
-}
-
-void check_string_ko(const char *str)
-{
-    yy_symbol_t symbol = {0};
-    size_t len = (str == NULL ? 0 : strlen(str));
-    const char *end = (str == NULL ? NULL : str + len);
-
-    yy_error_e rc = read_symbol_string(str, end, &symbol);
-
-    TEST_CHECK(rc != YY_OK);
-    TEST_MSG("Case='%s', error=non-failed", str);
-}
-
 void check_parse_boolean_ok(const char *str, bool expected_val)
 {
     size_t len = strlen(str);
@@ -263,9 +231,67 @@ void check_parse_boolean_ko(const char *str)
     TEST_MSG("Case='%s', error=not-failed", str);
 }
 
-void _check_read_symbol_variable_ok(const char *str, size_t len, const char *expected_val)
+void check_parse_string_ok(const char *str, const char *expected_val)
+{
+    size_t len = strlen(str);
+    uint32_t expected_len = strlen(expected_val);
+
+    yy_token_t token = yy_parse_string(str, str + len);
+
+    TEST_CHECK(token.type == YY_TOKEN_STRING);
+    TEST_MSG("Case='%s', error=not-a-string", str);
+    TEST_CHECK(expected_len == token.str_val.len);
+    TEST_MSG("Case='%s', error=unexpected-length", str);
+    TEST_CHECK(strncmp(expected_val, token.str_val.ptr, expected_len) == 0);
+    TEST_MSG("Case='%s', error=unexpected-value", str);
+}
+
+void check_parse_string_ko(const char *begin, const char *end)
+{
+    yy_token_t token = yy_parse_string(begin, end);
+
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+    TEST_MSG("Case='not-printed', error=not-failed");
+}
+
+void check_read_symbol_string_ok(const char *str, const char *expected_val)
 {
     yy_symbol_t symbol = {0};
+    size_t len = strlen(str);
+    size_t expected_len = strlen(expected_val);
+
+    yy_error_e rc = read_symbol_string(str, str + len, &symbol);
+
+    TEST_CHECK(rc == YY_OK);
+    TEST_MSG("Case='%.*s', error=failed", (int) len, str);
+    TEST_CHECK(symbol.type == YY_SYMBOL_STRING_VAL || symbol.type == YY_SYMBOL_ESCAPED_STRING_VAL);
+    TEST_MSG("Case='%.*s', error=not-a-string, type=%d", (int) len, str, symbol.type);
+    TEST_CHECK(symbol.lexeme.ptr == str);
+    TEST_MSG("Case='%.*s', error=invalid-lexeme-ptr", (int) len, str);
+    TEST_CHECK(symbol.lexeme.len == expected_len + 2);
+    TEST_MSG("Case='%.*s', error=invalid-lexeme-len", (int) len, str);
+    TEST_CHECK(symbol.str_val.len == expected_len);
+    TEST_MSG("Case='%.*s', error=invalid-string-len", (int) len, str);
+    TEST_CHECK(strncmp(symbol.str_val.ptr, expected_val, expected_len) == 0);
+    TEST_MSG("Case='%.*s', error=invalid-string-content", (int) len, str);
+}
+
+void check_read_symbol_string_ko(const char *str)
+{
+    yy_symbol_t symbol = {0};
+    size_t len = (str == NULL ? 0 : strlen(str));
+    const char *end = (str == NULL ? NULL : str + len);
+
+    yy_error_e rc = read_symbol_string(str, end, &symbol);
+
+    TEST_CHECK(rc != YY_OK);
+    TEST_MSG("Case='%s', error=non-failed", str);
+}
+
+void check_read_symbol_variable_ok(const char *str, const char *expected_val)
+{
+    yy_symbol_t symbol = {0};
+    size_t len = strlen(str);
     size_t expected_len = strlen(expected_val);
 
     yy_error_e rc = read_symbol_variable(str, str + len, &symbol);
@@ -408,44 +434,6 @@ void check_compile_string_ko(const char *str)
 }
 
 // ==============
-
-void check_string_ok(const char *str, const char *expected_val)
-{
-    char buf[1024] = {0};
-    size_t len = strlen(str);
-
-    strcpy(buf, str);
-
-    // isolate
-    _check_string_ok(buf, len, expected_val);
-
-    // same range, ending by '9'
-    buf[len] = '9';
-    _check_string_ok(buf, len, expected_val);
-
-    // range + 1, ending by '+'
-    buf[len] = '+';
-    _check_string_ok(buf, len + 1, expected_val);
-}
-
-void check_read_symbol_variable_ok(const char *str, const char *expected_val)
-{
-    char buf[1024] = {0};
-    size_t len = strlen(str);
-
-    strcpy(buf, str);
-
-    // isolate
-    _check_read_symbol_variable_ok(buf, len, expected_val);
-
-    // same range, ending by '9'
-    buf[len] = '9';
-    _check_read_symbol_variable_ok(buf, len, expected_val);
-
-    // range + 1, ending by '+'
-    buf[len] = '+';
-    _check_read_symbol_variable_ok(buf, len + 1, expected_val);
-}
 
 void check_dateadd(const char *str_date, int val, const char *str_part, const char *str_expected)
 {
@@ -723,60 +711,60 @@ void test_parse_datetime_ko(void)
     check_parse_datetime_ko("2023-02-29"); // non-leap-year
 }
 
-void test_string_ok(void)
+void test_read_symbol_string_ok(void)
 {
-    check_string_ok("\"\"", "");
+    check_read_symbol_string_ok("\"\"", "");
 
-    check_string_ok("\"abc\"", "abc");
+    check_read_symbol_string_ok("\"abc\"", "abc");
 
-    check_string_ok("\"\\n\"", "\\n");
-    check_string_ok("\"\\nabc\"", "\\nabc");
-    check_string_ok("\"abc\\n\"", "abc\\n");
-    check_string_ok("\"abc\\ndef\"", "abc\\ndef");
+    check_read_symbol_string_ok("\"\\n\"", "\\n");
+    check_read_symbol_string_ok("\"\\nabc\"", "\\nabc");
+    check_read_symbol_string_ok("\"abc\\n\"", "abc\\n");
+    check_read_symbol_string_ok("\"abc\\ndef\"", "abc\\ndef");
 
-    check_string_ok("\"\\t\"", "\\t");
-    check_string_ok("\"\\tabc\"", "\\tabc");
-    check_string_ok("\"abc\\t\"", "abc\\t");
-    check_string_ok("\"abc\\tdef\"", "abc\\tdef");
+    check_read_symbol_string_ok("\"\\t\"", "\\t");
+    check_read_symbol_string_ok("\"\\tabc\"", "\\tabc");
+    check_read_symbol_string_ok("\"abc\\t\"", "abc\\t");
+    check_read_symbol_string_ok("\"abc\\tdef\"", "abc\\tdef");
 
-    check_string_ok("\"\\\\\"", "\\\\");
-    check_string_ok("\"\\\\abc\"", "\\\\abc");
-    check_string_ok("\"abc\\\\\"", "abc\\\\");
-    check_string_ok("\"abc\\\\def\"", "abc\\\\def");
+    check_read_symbol_string_ok("\"\\\\\"", "\\\\");
+    check_read_symbol_string_ok("\"\\\\abc\"", "\\\\abc");
+    check_read_symbol_string_ok("\"abc\\\\\"", "abc\\\\");
+    check_read_symbol_string_ok("\"abc\\\\def\"", "abc\\\\def");
 
-    check_string_ok("\"\\\"\"", "\\\"");
-    check_string_ok("\"\\\"abc\"", "\\\"abc");
-    check_string_ok("\"abc\\\"\"", "abc\\\"");
-    check_string_ok("\"abc\\\"def\"", "abc\\\"def");
+    check_read_symbol_string_ok("\"\\\"\"", "\\\"");
+    check_read_symbol_string_ok("\"\\\"abc\"", "\\\"abc");
+    check_read_symbol_string_ok("\"abc\\\"\"", "abc\\\"");
+    check_read_symbol_string_ok("\"abc\\\"def\"", "abc\\\"def");
 
-    check_string_ok("\"\\n\\\\\\t\\\"\"", "\\n\\\\\\t\\\"");
+    check_read_symbol_string_ok("\"\\n\\\\\\t\\\"\"", "\\n\\\\\\t\\\"");
+
+    check_read_symbol_string_ok("\"abc\\xdef\"", "abc\\xdef");  // not escaped string
 }
 
-void test_string_ko(void)
+void test_read_symbol_string_ko(void)
 {
-    check_string_ko("");
-    check_string_ko(" ");
-    check_string_ko("a");
-    check_string_ko(" \"abc\"");
-    check_string_ko("\"");
-    check_string_ko("\"non terminated str");
+    check_read_symbol_string_ko("");
+    check_read_symbol_string_ko(" ");
+    check_read_symbol_string_ko("a");
+    check_read_symbol_string_ko(" \"abc\"");
+    check_read_symbol_string_ko("\"");
+    check_read_symbol_string_ko("\"non terminated str");
 
-    check_string_ko("\"\\\"");
-    check_string_ko("\"\\t");
-    check_string_ko("\"\\n");
-    check_string_ko("\"\\\\");
+    check_read_symbol_string_ko("\"\\\"");
+    check_read_symbol_string_ko("\"\\t");
+    check_read_symbol_string_ko("\"\\n");
+    check_read_symbol_string_ko("\"\\\\");
 
-    check_string_ko("\"abc\\\"");
-    check_string_ko("\"abc\\t");
-    check_string_ko("\"abc\\n");
-    check_string_ko("\"abc\\\\");
+    check_read_symbol_string_ko("\"abc\\\"");
+    check_read_symbol_string_ko("\"abc\\t");
+    check_read_symbol_string_ko("\"abc\\n");
+    check_read_symbol_string_ko("\"abc\\\\");
 
-    check_string_ko("\"\\\"abc");
-    check_string_ko("\"\\tabc");
-    check_string_ko("\"\\nabc");
-    check_string_ko("\"\\\\abc");
-
-    check_string_ko("\"abc\\xdef\"");  // unrecognized escaped char (\x)
+    check_read_symbol_string_ko("\"\\\"abc");
+    check_read_symbol_string_ko("\"\\tabc");
+    check_read_symbol_string_ko("\"\\nabc");
+    check_read_symbol_string_ko("\"\\\\abc");
 
     // 0 in-the-middle
     yy_symbol_t symbol = {0};
@@ -823,6 +811,26 @@ void test_parse_boolean_ko(void)
     check_parse_boolean_ko("falseX");
     check_parse_boolean_ko("FalseX");
     check_parse_boolean_ko("FALSEX");
+}
+
+void test_parse_string_ok(void)
+{
+    check_parse_string_ok("", "");
+    check_parse_string_ok("abc", "abc");
+    check_parse_string_ok("escaped\\tstring\\n", "escaped\\tstring\\n");
+}
+
+void test_parse_string_ko(void)
+{
+    const char *str1 = "abc";
+    const char str2[] = {'a', 'b', 'c', '\0', 'x', 'y', 'z'};
+
+    check_parse_string_ko(NULL, NULL);
+    check_parse_string_ko("a", NULL);
+    check_parse_string_ko(NULL, "z");
+    check_parse_string_ko(str1 + 2, str1);
+    check_parse_string_ko(str1, str1 + UINT32_MAX + 10);
+    check_parse_string_ko(str2, str2 + sizeof(str2));
 }
 
 void test_read_symbol_variable_ok(void)
@@ -884,8 +892,10 @@ void test_read_symbol_ok(void)
     check_next_ok("|| x", YY_SYMBOL_OR_OP, &symbol);
     check_next_ok("== 25", YY_SYMBOL_EQUALS_OP, &symbol);
     check_next_ok("!= 42", YY_SYMBOL_DISTINCT_OP, &symbol);
+    check_next_ok("<", YY_SYMBOL_LESS_OP, &symbol);
     check_next_ok("< 42", YY_SYMBOL_LESS_OP, &symbol);
     check_next_ok("<= 42", YY_SYMBOL_LESS_EQUALS_OP, &symbol);
+    check_next_ok(">", YY_SYMBOL_GREAT_OP, &symbol);
     check_next_ok("> 42", YY_SYMBOL_GREAT_OP, &symbol);
     check_next_ok(">= 42", YY_SYMBOL_GREAT_EQUALS_OP, &symbol);
     check_next_ok("not(false)", YY_SYMBOL_NOT, &symbol);
@@ -928,6 +938,8 @@ void test_read_symbol_ko(void)
     check_next_ko("unknow_keyword");
     check_next_ko("mmm");
     check_next_ko("@ unrecognized first letter");
+    check_next_ko("!");
+    check_next_ko("!a");
     check_next_ko("=");
     check_next_ko("=a");
     check_next_ko("=+");
@@ -1443,8 +1455,10 @@ TEST_LIST = {
     { "yy_parse_datetime_ko",         test_parse_datetime_ko },
     { "yy_parse_boolean_ok",          test_parse_boolean_ok },
     { "yy_parse_boolean_ko",          test_parse_boolean_ko },
-    { "string_ok",                    test_string_ok },
-    { "string_ko",                    test_string_ko },
+    { "yy_parse_string_ok",           test_parse_string_ok },
+    { "yy_parse_string_ko",           test_parse_string_ko },
+    { "read_symbol_string_ok",        test_read_symbol_string_ok },
+    { "read_symbol_string_ko",        test_read_symbol_string_ko },
     { "read_symbol_variable_ok",      test_read_symbol_variable_ok },
     { "read_symbol_variable_ko",      test_read_symbol_variable_ko },
     { "read_symbol_ok",               test_read_symbol_ok },
