@@ -83,15 +83,19 @@ const char * symbol_to_str(yy_symbol_e type)
         case YY_SYMBOL_DATEADD: return "DATEADD";
         case YY_SYMBOL_DATETRUNC: return "DATETRUNC";
         case YY_SYMBOL_LENGTH: return "LENGTH";
+        case YY_SYMBOL_FIND: return "FIND";
         case YY_SYMBOL_LOWER: return "LOWER";
         case YY_SYMBOL_UPPER: return "UPPER";
         case YY_SYMBOL_TRIM: return "TRIM";
         case YY_SYMBOL_CONCAT_OP: return "CONCAT";
         case YY_SYMBOL_SUBSTR: return "SUBSTR";
         case YY_SYMBOL_UNESCAPE: return "UNESCAPE";
+        case YY_SYMBOL_REPLACE: return "REPLACE";
+        case YY_SYMBOL_CLAMP: return "CLAMP";
         case YY_SYMBOL_NOT: return "NOT";
         case YY_SYMBOL_ISNAN: return "ISNAN";
         case YY_SYMBOL_ISINF: return "ISINF";
+        case YY_SYMBOL_ISERROR: return "ISERROR";
         case YY_SYMBOL_END: return "END";
         default: return "UNKNOW";
     }
@@ -927,6 +931,10 @@ void test_read_symbol_ok(void)
     check_next_ok("upper(\"AbCdEf\")", YY_SYMBOL_UPPER, &symbol);
     check_next_ok("trim(\"  abc  \")", YY_SYMBOL_TRIM, &symbol);
     check_next_ok("substr(\"abcdef\", 1, 3)", YY_SYMBOL_SUBSTR, &symbol);
+    check_next_ok("replace(\"abcdef\", \"a\", \"b\")", YY_SYMBOL_REPLACE, &symbol);
+    check_next_ok("find(\"abcdef\", \"a\", 3)", YY_SYMBOL_FIND, &symbol);
+    check_next_ok("clamp(1, 7, 15)", YY_SYMBOL_CLAMP, &symbol);
+    check_next_ok("iserror(${x})", YY_SYMBOL_ISERROR, &symbol);
     check_next_ok("pow(2, 3+1)", YY_SYMBOL_POWER, &symbol);
     check_next_ok("not(${b})", YY_SYMBOL_NOT, &symbol);
     check_next_ok("< 5", YY_SYMBOL_LESS_OP, &symbol);
@@ -990,6 +998,13 @@ void test_compile_number(void)
     check_compile_number_ok("min(2+3*4, 1+3*5)");
     check_compile_number_ok("sqrt(exp(((0 * (-4332.4091)) / (10865972.2922 - 275715300.8411))))");
     check_compile_number_ok("log((-2729166) / (-0.0205) * exp(0))");
+    check_compile_number_ok("1 + length(\"abc\")");
+    check_compile_number_ok("find(\"cd\", \"abcdefg\", 0)");
+    check_compile_number_ok("clamp(1, 5, 7)");
+    check_compile_number_ok("clamp(5, 5, 7)");
+    check_compile_number_ok("clamp(6, 5, 7)");
+    check_compile_number_ok("clamp(7, 5, 7)");
+    check_compile_number_ok("clamp(8, 5, 7)");
 
     check_compile_number_ko(" ");
     check_compile_number_ko("not_a_var");
@@ -1025,6 +1040,7 @@ void test_compile_datetime(void)
     check_compile_datetime_ok("dateset(\"2024-08-30T06:16:34.123Z\", 14, \"hour\")");
     check_compile_datetime_ok("min(\"2023-08-30T06:16:34.123Z\", now())");
     check_compile_datetime_ok("max(\"2023-08-30T06:16:34.123Z\", now())");
+    check_compile_datetime_ok("clamp(now(), \"2023-08-30\", \"2023-11-06\")");
 }
 
 void test_compile_string(void)
@@ -1044,8 +1060,10 @@ void test_compile_string(void)
     check_compile_string_ok("max(\"abc\", \"xyz\")");
     check_compile_string_ok("min(\"abc\", \"xyz\") + \"...\" + max(\"abc\", \"xyz\")");
     check_compile_string_ok("trim(upper(\"  abc   \"))");
-    check_compile_string_ok("trim(substr(\"  abc   \", 2, 5))");
+    check_compile_string_ok("trim(substr(\"  abc   \", 3, 5))");
     check_compile_string_ok("\"\\\\escaped string\\\\\"");
+    check_compile_string_ok("replace(\"Hi Bob!\", \"Bob\", \"John\")");
+    check_compile_string_ok("trim(replace(\" Hi BOB \", upper(\"Bob\"), lower(\"John\"))) + \"!\"");
 }
 
 void test_sizeof(void)
@@ -1065,10 +1083,21 @@ void test_funcs_number(void)
     yy_token_t date = {0};
 
     // length()
-    token = func_length(token_string("xxx", 3), NULL);
+    token = func_length(token_string("xxx", 3));
     TEST_CHECK(token.type == YY_TOKEN_NUMBER);
     TEST_CHECK(token.number_val == 3);
-    token = func_length(token_bool(true), NULL);
+    token = func_length(token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+
+    // find()
+    token = func_find(token_string("xxx", 3), token_string("abc_xxx_yz", 10), token_number(0));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 4);
+    token = func_find(token_bool(true), token_string("abc_xxx_yz", 10), token_number(0));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+    token = func_find(token_string("xxx", 3), token_bool(true), token_number(0));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+    token = func_find(token_string("xxx", 3), token_string("abc_xxx_yz", 10), token_bool(true));
     TEST_CHECK(token.type == YY_TOKEN_ERROR);
 
     // datepart()
@@ -1431,11 +1460,6 @@ void test_funcs_bool(void)
 
 void test_funcs_string(void)
 {
-    char str[] = "BOBITO!hi ";
-
-    rotate_mem(str, strlen(str), 3);
-    printf("rotate = %s\n", str);
-
     // TODO 
 
     // upper()

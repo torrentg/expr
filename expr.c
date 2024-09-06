@@ -29,6 +29,7 @@ SOFTWARE.
 #include <time.h>
 #include <errno.h>
 #include <ctype.h>
+#include <stddef.h>
 #include <assert.h>
 #include <string.h>
 #include <stdlib.h>
@@ -85,11 +86,12 @@ SOFTWARE.
     #define M_PI    3.14159265358979323846
 #endif
 
-#define token_error(err_)        (yy_token_t){ .error = err_                        , .type = YY_TOKEN_ERROR    }
-#define token_bool(val_)         (yy_token_t){ .bool_val = val_                     , .type = YY_TOKEN_BOOL     }
-#define token_number(val_)       (yy_token_t){ .number_val = val_                   , .type = YY_TOKEN_NUMBER   }
-#define token_datetime(val_)     (yy_token_t){ .datetime_val = val_                 , .type = YY_TOKEN_DATETIME }
-#define token_string(ptr_, len_) (yy_token_t){ .str_val = {.ptr = ptr_, .len = (uint32_t)(len_)}, .type = YY_TOKEN_STRING   }
+#define make_string(ptr_, len_)  (yy_str_t){.ptr = (ptr_), .len = (uint32_t)(len_)}
+#define token_error(err_)        (yy_token_t){ .error = (err_)                    , .type = YY_TOKEN_ERROR    }
+#define token_bool(val_)         (yy_token_t){ .bool_val = (val_)                 , .type = YY_TOKEN_BOOL     }
+#define token_number(val_)       (yy_token_t){ .number_val = (val_)               , .type = YY_TOKEN_NUMBER   }
+#define token_datetime(val_)     (yy_token_t){ .datetime_val = (val_)             , .type = YY_TOKEN_DATETIME }
+#define token_string(ptr_, len_) (yy_token_t){ .str_val = make_string(ptr_, len_) , .type = YY_TOKEN_STRING   }
 
 typedef enum yy_symbol_e
 {
@@ -138,20 +140,24 @@ typedef enum yy_symbol_e
     YY_SYMBOL_TRUNC,                //!< trunc
     YY_SYMBOL_CEIL,                 //!< ceil
     YY_SYMBOL_FLOOR,                //!< floor
+    YY_SYMBOL_CLAMP,                //!< clamp
     YY_SYMBOL_NOW,                  //!< now
     YY_SYMBOL_NOT,                  //!< not
     YY_SYMBOL_ISINF,                //!< isinf
     YY_SYMBOL_ISNAN,                //!< isnan
+    YY_SYMBOL_ISERROR,              //!< iserror
     YY_SYMBOL_DATEPART,             //!< datepart
     YY_SYMBOL_DATEADD,              //!< dateadd
     YY_SYMBOL_DATESET,              //!< dateset
     YY_SYMBOL_DATETRUNC,            //!< datetrunc
     YY_SYMBOL_LENGTH,               //!< length
+    YY_SYMBOL_FIND,                 //!< find
     YY_SYMBOL_LOWER,                //!< lower
     YY_SYMBOL_UPPER,                //!< upper
     YY_SYMBOL_TRIM,                 //!< trim
     YY_SYMBOL_CONCAT_OP,            //!< concat
     YY_SYMBOL_SUBSTR,               //!< substr
+    YY_SYMBOL_REPLACE,              //!< replace
     YY_SYMBOL_UNESCAPE,             //!< unescape
     YY_SYMBOL_END,                  //!< No more symbols (maintain at the end of list)
 } yy_symbol_e;
@@ -209,7 +215,8 @@ typedef yy_token_t (*yy_func_3_x)(yy_token_t, yy_token_t, yy_token_t, yy_eval_ct
 static const int days_in_month[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
 
 // Forward declarations
-static bool is_temp_value(const yy_eval_ctx_t *ctx, const yy_str_t *str);
+static bool is_temp_ptr(yy_eval_ctx_t *ctx, const char *ptr);
+static void free_str(yy_eval_ctx_t *ctx, yy_str_t *str);
 static void parse_expr_number(yy_parser_t *parser);
 static void parse_expr_string(yy_parser_t *parser);
 static yy_token_t func_now(yy_eval_ctx_t *ctx);
@@ -223,7 +230,10 @@ static yy_token_t func_lower(yy_token_t str, yy_eval_ctx_t *ctx);
 static yy_token_t func_upper(yy_token_t str, yy_eval_ctx_t *ctx);
 static yy_token_t func_concat(yy_token_t str1, yy_token_t str2, yy_eval_ctx_t *ctx);
 static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len, yy_eval_ctx_t *ctx);
-static yy_token_t func_length(yy_token_t str, yy_eval_ctx_t *ctx);
+static yy_token_t func_replace(yy_token_t str, yy_token_t old_str, yy_token_t new_str, yy_eval_ctx_t *ctx);
+static yy_token_t func_length(yy_token_t str);
+static yy_token_t func_find(yy_token_t needle, yy_token_t haystack, yy_token_t pos);
+static yy_token_t func_clamp(yy_token_t x, yy_token_t vmin, yy_token_t vmax);
 static yy_token_t func_abs(yy_token_t x);
 static yy_token_t func_ceil(yy_token_t x);
 static yy_token_t func_floor(yy_token_t x);
@@ -242,6 +252,7 @@ static yy_token_t func_subtraction(yy_token_t x, yy_token_t y);
 static yy_token_t func_mult(yy_token_t x, yy_token_t y);
 static yy_token_t func_div(yy_token_t x, yy_token_t y);
 static yy_token_t func_mod(yy_token_t x, yy_token_t y);
+static yy_token_t func_iserror(yy_token_t x);
 static yy_token_t func_isinf(yy_token_t x);
 static yy_token_t func_isnan(yy_token_t x);
 static yy_token_t func_not(yy_token_t x);
@@ -269,6 +280,7 @@ static const yy_identifier_t identifiers[] =
     { "True",      YY_SYMBOL_TRUE      },
     { "abs",       YY_SYMBOL_ABS       },
     { "ceil",      YY_SYMBOL_CEIL      },
+    { "clamp",     YY_SYMBOL_CLAMP     },
     { "cos",       YY_SYMBOL_COS       },
     { "dateadd",   YY_SYMBOL_DATEADD   },
     { "datepart",  YY_SYMBOL_DATEPART  },
@@ -276,7 +288,9 @@ static const yy_identifier_t identifiers[] =
     { "datetrunc", YY_SYMBOL_DATETRUNC },
     { "exp",       YY_SYMBOL_EXP       },
     { "false",     YY_SYMBOL_FALSE     },
+    { "find",      YY_SYMBOL_FIND      },
     { "floor",     YY_SYMBOL_FLOOR     },
+    { "iserror",   YY_SYMBOL_ISERROR   },
     { "isinf",     YY_SYMBOL_ISINF     },
     { "isnan",     YY_SYMBOL_ISNAN     },
     { "length",    YY_SYMBOL_LENGTH    },
@@ -288,6 +302,7 @@ static const yy_identifier_t identifiers[] =
     { "not",       YY_SYMBOL_NOT       },
     { "now",       YY_SYMBOL_NOW       },
     { "pow",       YY_SYMBOL_POWER     },
+    { "replace",   YY_SYMBOL_REPLACE   },
     { "sin",       YY_SYMBOL_SIN       },
     { "sqrt",      YY_SYMBOL_SQRT      },
     { "substr",    YY_SYMBOL_SUBSTR    },
@@ -341,6 +356,7 @@ static const yy_token_t symbol_to_token[] =
     [YY_SYMBOL_NOT]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_not        , 1) },
     [YY_SYMBOL_ISINF]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_isinf      , 1) },
     [YY_SYMBOL_ISNAN]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_isnan      , 1) },
+    [YY_SYMBOL_ISERROR]         = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_iserror    , 1) },
     [YY_SYMBOL_ABS]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_abs        , 1) },
     [YY_SYMBOL_MODULO]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_mod        , 2) },
     [YY_SYMBOL_POWER]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_pow        , 2) },
@@ -353,17 +369,20 @@ static const yy_token_t symbol_to_token[] =
     [YY_SYMBOL_TRUNC]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_trunc      , 1) },
     [YY_SYMBOL_CEIL]            = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_ceil       , 1) },
     [YY_SYMBOL_FLOOR]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_floor      , 1) },
+    [YY_SYMBOL_CLAMP]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_clamp      , 3) },
     [YY_SYMBOL_NOW]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_now        , 0, .is_not_pure = true) },
     [YY_SYMBOL_DATEPART]        = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_datepart   , 2) },
     [YY_SYMBOL_DATEADD]         = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_dateadd    , 3) },
     [YY_SYMBOL_DATESET]         = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_dateset    , 3) },
     [YY_SYMBOL_DATETRUNC]       = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_datetrunc  , 2) },
-    [YY_SYMBOL_LENGTH]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_length     , 1, .is_not_pure = true) },
+    [YY_SYMBOL_LENGTH]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_length     , 1) },
+    [YY_SYMBOL_FIND]            = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_find       , 3) },
     [YY_SYMBOL_LOWER]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_lower      , 1, .is_not_pure = true) },
     [YY_SYMBOL_UPPER]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_upper      , 1, .is_not_pure = true) },
     [YY_SYMBOL_TRIM]            = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_trim       , 1, .is_not_pure = true) },
     [YY_SYMBOL_CONCAT_OP]       = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_concat     , 2, .precedence = 5, .is_not_pure = true) },
     [YY_SYMBOL_SUBSTR]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_substr     , 3, .is_not_pure = true) },
+    [YY_SYMBOL_REPLACE]         = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_replace    , 3, .is_not_pure = true) },
     [YY_SYMBOL_UNESCAPE]        = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_unescape   , 1, .is_not_pure = true) },
     [YY_SYMBOL_MIN]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_min        , 2) },
     [YY_SYMBOL_MAX]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_max        , 2) },
@@ -385,6 +404,21 @@ static const char *date_parts[] = {
 // Check if year is a leap year
 static bool is_leap_year(int year) {
     return (((year % 4 == 0) && (year % 100 != 0)) || (year % 400 == 0));
+}
+
+INLINE
+bool is_blocking_error(yy_error_e err)
+{
+    switch (err) {
+        case YY_ERROR:
+        case YY_ERROR_CREF:
+        case YY_ERROR_MEM:
+        case YY_ERROR_EVAL:
+        case YY_ERROR_SYNTAX:
+            return true;
+        default:
+            return false;
+    }
 }
 
 /**
@@ -1464,6 +1498,16 @@ static void parse_term_number(yy_parser_t *parser)
             parse_expr_number(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
+        case YY_SYMBOL_CLAMP:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_number(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_number(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_number(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
         case YY_SYMBOL_PAREN_LEFT:
             consume(parser);
             parse_expr_number(parser);
@@ -1486,6 +1530,22 @@ static void parse_term_number(yy_parser_t *parser)
             parser->curr_symbol.type = YY_SYMBOL_MINUS_OP;
             consume(parser);
             parse_expr_number(parser);
+            break;
+        case YY_SYMBOL_LENGTH:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_string(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
+        case YY_SYMBOL_FIND:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_string(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_string(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_number(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
         default:
             parser->error = YY_ERROR_SYNTAX;
@@ -1575,6 +1635,16 @@ static void parse_term_string(yy_parser_t *parser)
             parse_expr_number(parser);
             expect(parser, YY_SYMBOL_COMMA);
             parse_expr_number(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
+        case YY_SYMBOL_REPLACE:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_string(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_string(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_string(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
         case YY_SYMBOL_PAREN_LEFT:
@@ -1736,6 +1806,16 @@ static void parse_term_datetime(yy_parser_t *parser)
             parse_term_datetime(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
+        case YY_SYMBOL_CLAMP:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_term_datetime(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_term_datetime(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_term_datetime(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
         default:
             parser->error = YY_ERROR_SYNTAX;
     }
@@ -1875,6 +1955,7 @@ yy_token_t yy_eval_stack(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*
         return token_error(YY_ERROR);
 
     yy_eval_ctx_t ctx = {.stack = aux, .tmp_str = (char *) &aux->data[aux->reserved]};
+    yy_token_t tmp = {0};
 
     aux->len = 0;
 
@@ -1893,6 +1974,14 @@ yy_token_t yy_eval_stack(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*
                 aux->data[aux->len++] = stack->data[i];
                 break;
             }
+            case YY_TOKEN_ERROR:
+            {
+                if (is_blocking_error(stack->data[i].error))
+                    return token_error(YY_ERROR_EVAL);
+
+                aux->data[aux->len++] = stack->data[i];
+                break;
+            }
             case YY_TOKEN_VARIABLE:
             {
                 if (aux->reserved <= aux->len)
@@ -1901,8 +1990,8 @@ yy_token_t yy_eval_stack(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*
                 if (!resolve)
                     return token_error(YY_ERROR_REF);
 
-                yy_token_t tmp = resolve(&stack->data[i].variable, data);
-                if (tmp.type == YY_TOKEN_ERROR)
+                tmp = resolve(&stack->data[i].variable, data);
+                if (tmp.type == YY_TOKEN_ERROR && is_blocking_error(tmp.error))
                     return tmp;
 
                 aux->data[aux->len++] = tmp;
@@ -1910,23 +1999,38 @@ yy_token_t yy_eval_stack(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*
             }
             case YY_TOKEN_FUNCTION:
             {
-                yy_token_t tmp = eval_func(stack->data[i].function, &ctx);
-                if (tmp.type == YY_TOKEN_ERROR)
+                tmp = eval_func(stack->data[i].function, &ctx);
+                if (tmp.type == YY_TOKEN_ERROR && is_blocking_error(tmp.error))
                     return tmp;
 
-                if (stack->data[i].function.num_args)
+                // dealloc temp memory used by arguments
+                for (uint32_t j = 0; j < stack->data[i].function.num_args; j++)
                 {
-                    assert(stack->data[i].function.num_args <= aux->len);
-                    aux->len -= stack->data[i].function.num_args;
+                    yy_token_t *arg = get(aux, j);
+
+                    if (!arg || arg->type != YY_TOKEN_STRING || !is_temp_ptr(&ctx, arg->str_val.ptr))
+                        continue;
+
+                    if (tmp.type == YY_TOKEN_STRING && is_temp_ptr(&ctx, tmp.str_val.ptr))
+                    {
+                        if (tmp.str_val.ptr == arg->str_val.ptr)
+                            continue;
+
+                        if (tmp.str_val.ptr < arg->str_val.ptr)
+                            tmp.str_val.ptr += arg->str_val.len;
+                    }
+
+                    free_str(&ctx, &arg->str_val);
                 }
+
+                if (stack->data[i].function.num_args)
+                    aux->len -= stack->data[i].function.num_args;
                 else if (aux->reserved <= aux->len)
                     return token_error(YY_ERROR_MEM);
 
                 aux->data[aux->len++] = tmp;
                 break;
             }
-            case YY_TOKEN_ERROR:
-                return stack->data[i];
             default:
                 return token_error(YY_ERROR_EVAL);
         }
@@ -1935,7 +2039,9 @@ yy_token_t yy_eval_stack(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*
     if (aux->len != 1)
         return token_error(YY_ERROR_EVAL);
 
-    assert (aux->data[0].type != YY_TOKEN_STRING || !is_temp_value(&ctx, &aux->data[0].str_val) || aux->data[0].str_val.ptr == ctx.tmp_str);
+    assert (aux->data[0].type != YY_TOKEN_STRING || 
+            !is_temp_ptr(&ctx, aux->data[0].str_val.ptr) || 
+            (aux->data[0].str_val.ptr == ctx.tmp_str && ctx.tmp_str + aux->data[0].str_val.len == (char *) &aux->data[aux->reserved]));
 
     return aux->data[0];
 }
@@ -2000,7 +2106,7 @@ yy_token_t yy_parse_number(const char *begin, const char *end)
 
     if (read_symbol_number(begin, end, &symbol) != YY_OK)
         return token_error(YY_ERROR_VALUE);
-    
+
     if (symbol.lexeme.ptr + symbol.lexeme.len != end)
         return token_error(YY_ERROR_VALUE);
 
@@ -2576,90 +2682,113 @@ static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part)
 
 // --- Functions returning a string
 
-static void rotate_left(void *p, size_t len, size_t lshift)
-{
-    unsigned char *d = (unsigned char *) p;
-    size_t start;
-    size_t sx;
-    size_t todo = len;
-
-    if (!len)
-        return;
-
-    lshift %= len;
-
-    if (!lshift)
-        return;
-
-    for (start = 0; todo; start++) {
-        unsigned char x = d[start];
-        size_t dx = start;
-        while (1) {
-            todo--;
-            sx = dx + lshift;
-            if (sx >= len || sx < dx /*overflow*/)
-                sx -= len;
-            if (sx == start) {
-                d[dx] = x;
-                break;
-            }
-            d[dx] = d[sx];
-            dx = sx;
-        }
-    }
-}
-
-// @see https://stackoverflow.com/questions/44974592/rotate-a-string-in-c
-static void rotate_mem(void *p, size_t len, ssize_t rshift)
-{
-    if (!len)
-        return;
-
-    rshift = rshift % len;
-    size_t lshift = (rshift < 0 ? (size_t) -rshift : len - rshift);
-
-    rotate_left(p, len, lshift);
-}
-
-static bool is_temp_value(const yy_eval_ctx_t *ctx, const yy_str_t *str)
-{
-    return (ctx && (char *) ctx->stack->data < str->ptr && str->ptr < (char *) &ctx->stack->data[ctx->stack->reserved]);
-}
-
-static char * alloc_tmp_mem(yy_eval_ctx_t *ctx, uint32_t size)
-{
-    assert(ctx && ctx->stack && ctx->tmp_str);
-    assert((char *) &ctx->stack->data[ctx->stack->len] <= ctx->tmp_str);
-    assert(ctx->tmp_str <= (char *) &ctx->stack->data[ctx->stack->reserved]);
-
-    if (ctx->tmp_str - size < (char *) &ctx->stack[ctx->stack->len])
-        return NULL;
-
-    ctx->tmp_str -= size;
-
-    return ctx->tmp_str;
+INLINE
+static bool is_temp_ptr(yy_eval_ctx_t *ctx, const char *ptr) {
+    return (!ptr && (char *) &ctx->stack->data[ctx->stack->len] <= ptr && ptr < (char *) &ctx->stack->data[ctx->stack->reserved]);
 }
 
 INLINE
-static void free_tmp_mem(yy_eval_ctx_t *ctx, uint32_t size)
-{
-    assert(ctx && ctx->stack && ctx->tmp_str);
-    assert((char *) &ctx->stack->data[ctx->stack->len] <= ctx->tmp_str);
-    assert(ctx->tmp_str + size <= (char *) &ctx->stack->data[ctx->stack->reserved]);
-
-    ctx->tmp_str += size;
+static uint32_t temp_total_bytes(yy_eval_ctx_t *ctx) {
+    return (uint32_t) sizeof(yy_token_t) * (ctx->stack->reserved - ctx->stack->len);
 }
 
-static bool copy_str_to_mem(yy_eval_ctx_t *ctx, yy_str_t *str)
+INLINE
+static uint32_t temp_used_bytes(yy_eval_ctx_t *ctx) {
+    return (uint32_t)((char *) &ctx->stack->data[ctx->stack->reserved] - ctx->tmp_str);
+}
+
+INLINE
+static uint32_t temp_avail_bytes(yy_eval_ctx_t *ctx) {
+    return (uint32_t)(ctx->tmp_str - (char *) &ctx->stack->data[ctx->stack->len]);
+}
+
+/**
+ * Deallocates a string located in the temporary memory.
+ * 
+ * Example (str2 removal):
+ * 
+ *   before:
+ *   STACK = [tok1, tok2, tok3, tok4, ... <empty> ..., str3, str2, str1]
+ * 
+ *   after:
+ *   STACK = [tok1, tok2, tok3, tok4, ... <empty> ...,  0000, str3, str1]
+ * 
+ * Caution: References to str3 are broken!
+ * 
+ * @param[in] ctx Eval context to use.
+ * @param[in,out] str String to deallocate.
+ */
+static void free_str(yy_eval_ctx_t *ctx, yy_str_t *str)
 {
-    if (is_temp_value(ctx, str))
-        return true;
-    
-    char *ptr = alloc_tmp_mem(ctx, str->len);
-    if (ptr == NULL)
+    if (!ctx)
+        return;
+
+    assert(ctx->stack && ctx->tmp_str);
+    assert((char *) &ctx->stack->data[ctx->stack->len] <= ctx->tmp_str);
+    assert(ctx->tmp_str <= (char *) &ctx->stack->data[ctx->stack->reserved]);
+
+    if (!is_temp_ptr(ctx, str->ptr) || str->len == 0)
+        return;
+
+    if (str->ptr > ctx->tmp_str)
+        memmove(ctx->tmp_str + str->len, ctx->tmp_str, str->ptr - ctx->tmp_str);
+
+    memset(ctx->tmp_str, 0x00, str->len);
+
+    ctx->tmp_str += str->len;
+    *str = make_string("", 0);
+}
+
+/**
+ * Allocates a new string in the temporary memory.
+ * 
+ * @param[in] ctx Eval context to use.
+ * @param[in] size Size of the new string.
+ * @param[out] ret Allocated string.
+ * 
+ * @return true = success, false = not enough memory.
+ */
+static bool alloc_str(yy_eval_ctx_t *ctx, uint32_t size, yy_str_t *ret)
+{
+    if (!ctx)
         return false;
 
-    str->ptr = (const char *) memcpy(ptr, str->ptr, str->len);
+    assert(ctx->stack && ctx->tmp_str);
+    assert((char *) &ctx->stack->data[ctx->stack->len] <= ctx->tmp_str);
+    assert(ctx->tmp_str <= (char *) &ctx->stack->data[ctx->stack->reserved]);
+
+    if (size > temp_avail_bytes(ctx))
+        return false;
+
+    ctx->tmp_str -= size;
+
+    *ret = make_string(ctx->tmp_str, size);
+
+    return true;
+}
+
+/**
+ * Create a copy of the string in the temporary memory.
+ * 
+ * @param[in] ctx Eval context to use.
+ * @param[in] str Size of the new string.
+ * @param[out] ret Allocated string.
+ * 
+ * @return true = success, false = not enough memory.
+ */
+static bool duplicate_str(yy_eval_ctx_t *ctx, yy_str_t str, yy_str_t *ret)
+{
+    if (!ctx)
+        return false;
+
+    assert(ctx->stack && ctx->tmp_str);
+    assert((char *) &ctx->stack->data[ctx->stack->len] <= ctx->tmp_str);
+    assert(ctx->tmp_str <= (char *) &ctx->stack->data[ctx->stack->reserved]);
+    
+    if (!alloc_str(ctx, str.len, ret))
+        return false;
+
+    memcpy((char *) ret->ptr, str.ptr, str.len);
 
     return true;
 }
@@ -2674,21 +2803,24 @@ static yy_token_t func_trim(yy_token_t str, yy_eval_ctx_t *ctx)
 
     while (ptr < end && isspace(*ptr))
         ++ptr;
-    
+
     while (ptr < end && isspace(*(end-1)))
         --end;
 
     uint32_t new_len = end - ptr;
-    uint32_t diff = str.str_val.len - new_len;
 
-    // case temp string
-    if (diff && is_temp_value(ctx, &str.str_val)) {
-        assert(str.str_val.ptr == ctx->tmp_str);
-        ptr = (char *) memmove((char *) str.str_val.ptr + diff, ptr, new_len);
-        free_tmp_mem(ctx, diff);
-    }
+    if (new_len == str.str_val.len)
+        return str;
 
-    return token_string(ptr, new_len);
+    if (!is_temp_ptr(ctx, ptr))
+        return token_string(ptr, new_len);
+
+    yy_str_t ret = {0};
+
+    if (!duplicate_str(ctx, make_string(ptr, new_len), &ret))
+        return token_error(YY_ERROR_MEM);
+
+    return token_string(ret.ptr, ret.len);
 }
 
 static yy_token_t func_lower(yy_token_t str, yy_eval_ctx_t *ctx)
@@ -2696,15 +2828,30 @@ static yy_token_t func_lower(yy_token_t str, yy_eval_ctx_t *ctx)
     if (str.type != YY_TOKEN_STRING || !str.str_val.ptr)
         return token_error(YY_ERROR_VALUE);
 
-    if (!copy_str_to_mem(ctx, &str.str_val))
+    bool has_upper = false;
+
+    for (uint32_t i = 0; i < str.str_val.len; i++) {
+        int c = str.str_val.ptr[i];
+        if (isalpha(c) && !islower(c)) {
+            has_upper = true;
+            break;
+        }
+    }
+
+    if (!has_upper)
+        return str;
+
+    yy_str_t ret = {0};
+    
+    if (!alloc_str(ctx, str.str_val.len, &ret))
         return token_error(YY_ERROR_MEM);
 
-    char *ptr = (char *) str.str_val.ptr;
+    for (uint32_t i = 0; i < str.str_val.len; i++) {
+        char *ptr = (char *)(ret.ptr + i);
+        *ptr = tolower(str.str_val.ptr[i]);
+    }
 
-    for (uint32_t i = 0; i < str.str_val.len; i++, ++ptr)
-        *ptr = tolower((unsigned char) *ptr);
-
-    return str;
+    return token_string(ret.ptr, ret.len);
 }
 
 static yy_token_t func_upper(yy_token_t str, yy_eval_ctx_t *ctx)
@@ -2712,71 +2859,56 @@ static yy_token_t func_upper(yy_token_t str, yy_eval_ctx_t *ctx)
     if (str.type != YY_TOKEN_STRING || !str.str_val.ptr)
         return token_error(YY_ERROR_VALUE);
 
-    if (!copy_str_to_mem(ctx, &str.str_val))
+    bool has_lower = false;
+
+    for (uint32_t i = 0; i < str.str_val.len; i++) {
+        int c = str.str_val.ptr[i];
+        if (isalpha(c) && !isupper(c)) {
+            has_lower = true;
+            break;
+        }
+    }
+
+    if (!has_lower)
+        return str;
+
+    yy_str_t ret = {0};
+
+    if (!alloc_str(ctx, str.str_val.len, &ret))
         return token_error(YY_ERROR_MEM);
 
-    char *ptr = (char *) str.str_val.ptr;
+    for (uint32_t i = 0; i < str.str_val.len; i++) {
+        char *ptr = (char *)(ret.ptr + i);
+        *ptr = toupper(str.str_val.ptr[i]);
+    }
 
-    for (uint32_t i = 0; i < str.str_val.len; i++, ++ptr)
-        *ptr = toupper((unsigned char) *ptr);
-
-    return str;
+    return token_string(ret.ptr, ret.len);
 }
 
 static yy_token_t func_concat(yy_token_t str1, yy_token_t str2, yy_eval_ctx_t *ctx)
 {
-    if (str1.type != YY_TOKEN_STRING || str2.type != YY_TOKEN_STRING || !str1.str_val.ptr || !str2.str_val.ptr)
+    if (str1.type != YY_TOKEN_STRING || !str1.str_val.ptr)
         return token_error(YY_ERROR_VALUE);
 
-    bool is_str1_temp = is_temp_value(ctx, &str1.str_val);
-    bool is_str2_temp = is_temp_value(ctx, &str2.str_val);
-    uint32_t new_len = str1.str_val.len + str2.str_val.len;
-    char *ptr = NULL;
+    if (str2.type != YY_TOKEN_STRING || !str2.str_val.ptr)
+        return token_error(YY_ERROR_VALUE);
 
-    // both strings in temp memory (str2+str1)
-    if (is_str1_temp && is_str2_temp)
-    {
-        assert(str2.str_val.ptr == ctx->tmp_str);
-        assert(str1.str_val.ptr == str2.str_val.ptr + str2.str_val.len);
-        rotate_mem((void *) str2.str_val.ptr, new_len, str1.str_val.len);
-        str2.str_val.len = new_len;
+    if (!str1.str_val.len)
         return str2;
-    }
 
-    // case str1 fixed and str2 on top of temp memory
-    if (!is_str1_temp && is_str2_temp)
-    {
-        assert(str2.str_val.ptr == ctx->tmp_str);
-        if (!copy_str_to_mem(ctx, &str1.str_val))
-            return token_error(YY_ERROR_MEM);
-        str1.str_val.len += str2.str_val.len;
+    if (!str2.str_val.len)
         return str1;
-    }
+    
+    yy_str_t ret = {0};
+    uint32_t new_len = str1.str_val.len + str2.str_val.len;
 
-    // case str1 on top of temp memory and str2 fixed
-    if (is_str1_temp && !is_str2_temp)
-    {
-        assert(str1.str_val.ptr == ctx->tmp_str);
-        if ((ptr = alloc_tmp_mem(ctx, str2.str_val.len)) == NULL)
-            return token_error(YY_ERROR_MEM);
-        memmove(ptr, str1.str_val.ptr, str1.str_val.len);
-        memmove(ptr + str1.str_val.len, str2.str_val.ptr, str2.str_val.len);
-        return token_string(ptr, new_len);
-    }
+    if (!alloc_str(ctx, new_len, &ret))
+        return token_error(YY_ERROR_MEM);
 
-    // str1 and str2 are fixed strings
-    if (!is_str1_temp && !is_str2_temp)
-    {
-        if ((ptr = alloc_tmp_mem(ctx, new_len)) == NULL)
-            return token_error(YY_ERROR_MEM);
+    memcpy((char *) ret.ptr, str1.str_val.ptr, str1.str_val.len);
+    memcpy((char *) ret.ptr + str1.str_val.len, str2.str_val.ptr, str2.str_val.len);
 
-        memcpy(ptr, str1.str_val.ptr, str1.str_val.len);
-        memcpy(ptr + str1.str_val.len, str2.str_val.ptr, str2.str_val.len);
-
-        return token_string(ptr, new_len);
-    }
-
-    return token_error(YY_ERROR);
+    return token_string(ret.ptr, ret.len);
 }
 
 static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len, yy_eval_ctx_t *ctx)
@@ -2784,22 +2916,28 @@ static yy_token_t func_substr(yy_token_t str, yy_token_t start, yy_token_t len, 
     if (str.type != YY_TOKEN_STRING || !str.str_val.ptr)
         return token_error(YY_ERROR_VALUE);
 
-    if (start.type != YY_TOKEN_NUMBER || len.type != YY_TOKEN_NUMBER)
+    if (start.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    if (len.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
     uint32_t pos = CLAMP((int) start.number_val, 0, (int) str.str_val.len);
     const char *new_ptr = str.str_val.ptr + pos;
     uint32_t new_len = CLAMP((int) len.number_val, 0, (int)(str.str_val.len - pos));
 
-    // case temp string
-    if (is_temp_value(ctx, &str.str_val)) {
-        assert(str.str_val.ptr == ctx->tmp_str);
-        uint32_t diff = str.str_val.len - new_len;
-        new_ptr = (char *) memmove((char *) str.str_val.ptr + diff, new_ptr, new_len);
-        free_tmp_mem(ctx, diff);
-    }
+    if (new_ptr == str.str_val.ptr && new_len == str.str_val.len)
+        return str;
 
-    return token_string(new_ptr, new_len);
+    if (!is_temp_ptr(ctx, new_ptr))
+        return token_string(new_ptr, new_len);
+
+    yy_str_t ret = {0};
+
+    if (!duplicate_str(ctx, make_string(new_ptr, new_len), &ret))
+        return token_error(YY_ERROR_MEM);
+
+    return token_string(ret.ptr, ret.len);
 }
 
 static yy_token_t func_unescape(yy_token_t str, yy_eval_ctx_t *ctx)
@@ -2814,9 +2952,8 @@ static yy_token_t func_unescape(yy_token_t str, yy_eval_ctx_t *ctx)
     uint32_t new_len = len;
     const char *ptr = str.str_val.ptr;
     char *new_ptr = NULL;
-    uint32_t diff = 0;
 
-    // compute unescaped string length
+    // count escaped chars
     for (uint32_t i = 0; i < len - 1; i++, ++ptr) {
         if (ptr[i] == '\\' && (ptr[i+1] == '\\' || ptr[i+1] == '"' || ptr[i+1] == 't' || ptr[i+1] == 'n')) {
             new_len--;
@@ -2825,63 +2962,136 @@ static yy_token_t func_unescape(yy_token_t str, yy_eval_ctx_t *ctx)
         }
     }
 
-    diff = len - new_len;
-
-    if (!diff)
+    if (len == new_len)
         return str;
 
-    if (is_temp_value(ctx, &str.str_val)) {
-        assert(str.str_val.ptr == ctx->tmp_str);
-        new_ptr = (char *) str.str_val.ptr + diff;
-        free_tmp_mem(ctx, diff);
-    }
-    else {
-        new_ptr = alloc_tmp_mem(ctx, new_len);
-        if (!new_ptr)
-            return token_error(YY_ERROR_MEM);
-    }
+    yy_str_t ret = {0};
+
+    if (!alloc_str(ctx, new_len, &ret))
+        return token_error(YY_ERROR_MEM);
 
     ptr = str.str_val.ptr;
+    new_ptr = (char *) ret.ptr;
 
     // unescape string
-    for (int i = len - 1, j = new_len - 1; i > 0; i--, j--)
+    for (uint32_t i = 0, j = 0; i < len - 1; i++, j++)
     {
-        new_ptr[j] = ptr[i];
-
-        if (ptr[i-1] == '\\')
+        if (ptr[i] == '\\')
         {
-            switch (ptr[i])
+            switch (ptr[i+1])
             {
-                case '"':  new_ptr[j] = '"';  i--; break;
-                case '\\': new_ptr[j] = '\\'; i--; break;
-                case 't':  new_ptr[j] = '\t'; i--; break;
-                case 'n':  new_ptr[j] = '\n'; i--; break;
-                default: break;
+                case '"':  new_ptr[j] = '"';  i++; break;
+                case '\\': new_ptr[j] = '\\'; i++; break;
+                case 't':  new_ptr[j] = '\t'; i++; break;
+                case 'n':  new_ptr[j] = '\n'; i++; break;
+                default:   new_ptr[j] = ptr[i];
             }
         }
+        else
+            new_ptr[j] = ptr[i];
     }
 
-    if (ptr[0] != '\\')
-        new_ptr[0] = ptr[0];
+    new_ptr[new_len - 1] = ptr[len - 1];
 
-    return token_string(new_ptr, new_len);
+    return token_string(ret.ptr, ret.len);
+}
+
+static uint32_t str_count_ocurrences(const yy_str_t *str, const yy_str_t *substr)
+{
+    uint32_t ocurrences = 0;
+    uint32_t len = str->len;
+    const char *ptr = str->ptr;
+    const char *aux = NULL;
+
+    while ((aux = (char *) memmem(ptr, len, substr->ptr, substr->len)) != NULL) {
+        len -= (aux - ptr) + substr->len;
+        ptr = aux + substr->len;
+        ocurrences++;
+    }
+
+    return ocurrences;
+}
+
+static void str_replace(const yy_str_t str, const yy_str_t old_substr, const yy_str_t new_substr, yy_str_t *ret)
+{
+    uint32_t len = str.len;
+    const char *src = str.ptr;
+    const char *aux = NULL;
+    char *dest = (char *) ret->ptr;
+
+    while ((aux = (char *) memmem(src, len, old_substr.ptr, old_substr.len)) != NULL)
+    {
+        size_t num_bytes = aux - src;
+        memcpy(dest, src, num_bytes);
+        dest += num_bytes;
+        memcpy(dest, new_substr.ptr, new_substr.len);
+        dest += new_substr.len;
+        len -= num_bytes + old_substr.len;
+        src = aux + old_substr.len;
+    }
+
+    memcpy(dest, src, len);
+}
+
+static yy_token_t func_replace(yy_token_t str, yy_token_t old_substr, yy_token_t new_substr, yy_eval_ctx_t *ctx)
+{
+    if (str.type != YY_TOKEN_STRING || !str.str_val.ptr)
+        return token_error(YY_ERROR_VALUE);
+
+    if (old_substr.type != YY_TOKEN_STRING || !old_substr.str_val.ptr)
+        return token_error(YY_ERROR_VALUE);
+
+    if (new_substr.type != YY_TOKEN_STRING || !new_substr.str_val.ptr)
+        return token_error(YY_ERROR_VALUE);
+
+    int ocurrences = str_count_ocurrences(&str.str_val, &old_substr.str_val);
+
+    if (!ocurrences)
+        return str;
+
+    size_t new_len = str.str_val.len + ocurrences * (new_substr.str_val.len - old_substr.str_val.len);
+
+    if (new_len > UINT32_MAX)
+        return token_error(YY_ERROR_VALUE);
+
+    yy_str_t ret = {0};
+
+    if (!alloc_str(ctx, new_len, &ret))
+        return token_error(YY_ERROR_MEM);
+
+    str_replace(str.str_val, old_substr.str_val, new_substr.str_val, &ret);
+
+    return token_string(ret.ptr, ret.len);
 }
 
 // --- Functions returning a number
 
-static yy_token_t func_length(yy_token_t str, yy_eval_ctx_t *ctx)
+static yy_token_t func_length(yy_token_t str)
 {
-    if (str.type != YY_TOKEN_STRING)
+    if (str.type != YY_TOKEN_STRING || !str.str_val.ptr)
         return token_error(YY_ERROR_VALUE);
 
     uint32_t len = str.str_val.len;
 
-    if (is_temp_value(ctx, &str.str_val)) {
-        assert(str.str_val.ptr == ctx->tmp_str);
-        free_tmp_mem(ctx, len);
-    }
-
     return token_number(len);
+}
+
+static yy_token_t func_find(yy_token_t needle, yy_token_t haystack, yy_token_t start)
+{
+    if (needle.type != YY_TOKEN_STRING || !needle.str_val.ptr)
+        return token_error(YY_ERROR_VALUE);
+
+    if (haystack.type != YY_TOKEN_STRING || !haystack.str_val.ptr)
+        return token_error(YY_ERROR_VALUE);
+
+    if (start.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    const char *ptr = (char *) memmem(haystack.str_val.ptr, haystack.str_val.len, needle.str_val.ptr, needle.str_val.len);
+
+    yy_token_t ret = (!ptr ? token_error(YY_ERROR_VALUE) : token_number(ptr - haystack.str_val.ptr));
+
+    return ret;
 }
 
 static yy_token_t func_datepart(yy_token_t date, yy_token_t part)
@@ -3068,6 +3278,11 @@ static yy_token_t func_not(yy_token_t x)
     return token_bool(!x.bool_val);
 }
 
+static yy_token_t func_iserror(yy_token_t x)
+{
+    return token_bool(x.type == YY_TOKEN_ERROR);
+}
+
 static yy_token_t func_isinf(yy_token_t x)
 {
     if (x.type != YY_TOKEN_NUMBER)
@@ -3187,6 +3402,26 @@ static yy_token_t func_max(yy_token_t x, yy_token_t y)
             return y;
         else
             return x;
+    }
+
+    return token_error(YY_ERROR_VALUE);
+}
+
+static yy_token_t func_clamp(yy_token_t x, yy_token_t vmin, yy_token_t vmax)
+{
+    if (x.type != vmin.type || x.type != vmax.type)
+        return token_error(YY_ERROR_VALUE);
+
+    if (x.type == YY_TOKEN_NUMBER)
+    {
+        double val = CLAMP(x.number_val, vmin.number_val, vmax.number_val);
+        return token_number(val);
+    }
+
+    if (x.type == YY_TOKEN_DATETIME)
+    {
+        uint64_t val = CLAMP(x.datetime_val, vmin.datetime_val, vmax.datetime_val);
+        return token_datetime(val);
     }
 
     return token_error(YY_ERROR_VALUE);

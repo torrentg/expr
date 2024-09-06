@@ -28,7 +28,6 @@ SOFTWARE.
 #ifndef EXPR_H
 #define EXPR_H
 
-#include <stddef.h>
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -57,10 +56,11 @@ typedef enum yy_error_e {
     YY_OK,                          //!< No errors.
     YY_ERROR,                       //!< Generic error (ex. given stack is NULL).
     YY_ERROR_REF,                   //!< Variable not found (error returned by resolve).
+    YY_ERROR_CREF,                  //!< Circular reference (error returned by resolve).
     YY_ERROR_MEM,                   //!< Not enough memory (try to increase the stack size).
     YY_ERROR_EVAL,                  //!< Evaluation error (ex. corrupted stack).
     YY_ERROR_VALUE,                 //!< Invalid value (ex: variable contains unexpected type).
-    YY_ERROR_SYNTAX                 //!< Syntax error (ex. unexpected parenthesis, malformated number, etc).
+    YY_ERROR_SYNTAX,                //!< Syntax error (ex. unexpected parenthesis, malformated number, etc).
 } yy_error_e;
 
 typedef struct PACKED yy_str_t {
@@ -97,35 +97,22 @@ typedef struct yy_stack_t {
 } yy_stack_t;
 
 /**
- * Parse a single value.
+ * Evaluate an expression.
  * 
- * Use these support functions to parse variable content, not expressions.
- * They are used to validate that string data adheres to the expected syntax. 
- * If you just want to create a token, don't use these functions, instead 
- * assign the type and value directly.
- *
- * There is not a parser for variables because variables appears always into
- * expressions.
- * 
- * Caution, strings and datetimes surrounded by double-quote are reported as error.
- * 
- * Features:
- *   - number: parse JSON-format numbers (RFC-7159).
- *   - datetime: parse ISO-8601 datetimes (ex. 2024-08-24T09:05:58.123Z, 2024-08-24, etc.).
- *   - string: parse non-quoted strings.
- *   - bool: true, True, TRUE, false, False, FALSE.
- * 
- * @param[in] begin String to parse (trimmed, without leading and trailing whitespaces).
+ * @param[in] begin String to parse.
  * @param[in] end One char after the string end.
+ * @param[in] aux Auxiliar memory used to compile and evaluate.
+ * @param[in] resolve Function used to resolve variables (can be NULL if there are no variables).
+ * @param[in] data Data passed to the 'resolve' function.
  * 
- * @return Parsed value,
- *         On error, token.type == YY_TOKEN_ERROR.
+ * @return Result as token, 
+ *         on error type=YY_TOKEN_ERROR and error contains the error detail.
  */
-yy_token_t yy_parse_number(const char *begin, const char *end);
-yy_token_t yy_parse_datetime(const char *begin, const char *end);
-yy_token_t yy_parse_string(const char *begin, const char *end);
-yy_token_t yy_parse_bool(const char *begin, const char *end);
-yy_token_t yy_parse(const char *begin, const char *end);
+yy_token_t yy_eval_number(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
+yy_token_t yy_eval_datetime(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
+yy_token_t yy_eval_string(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
+yy_token_t yy_eval_bool(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
+yy_token_t yy_eval(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
 
 /**
  * Compile an expression.
@@ -166,25 +153,38 @@ yy_error_e yy_compile(const char *begin, const char *end, yy_stack_t *stack, con
 yy_token_t yy_eval_stack(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
 
 /**
- * Evaluate an expression.
+ * Parse a single value.
  * 
- * @param[in] begin String to parse.
+ * Use these support functions to parse variable content, not expressions.
+ * They are used to validate that a string adheres to the expected syntax. 
+ * If you just want to create a token, don't use these functions, instead 
+ * assign the type and value directly.
+ *
+ * There is not a parser for variables because variables appears always into
+ * expressions.
+ * 
+ * Caution, strings and datetimes surrounded by double-quote are reported as error.
+ * 
+ * Features:
+ *   - number: parse JSON-format numbers (RFC-7159).
+ *   - datetime: parse ISO-8601 datetimes (ex. 2024-08-24T09:05:58.123Z, 2024-08-24, etc.).
+ *   - string: parse non-quoted strings.
+ *   - bool: true, True, TRUE, false, False, FALSE.
+ * 
+ * @param[in] begin String to parse (trimmed, without leading and trailing whitespaces).
  * @param[in] end One char after the string end.
- * @param[in] aux Auxiliar memory used to compile and evaluate.
- * @param[in] resolve Function used to resolve variables (can be NULL if there are no variables).
- * @param[in] data Data passed to the 'resolve' function.
  * 
- * @return Result as token, 
- *         on error type=YY_TOKEN_ERROR and error contains the error detail.
+ * @return Parsed value,
+ *         On error, token.type == YY_TOKEN_ERROR.
  */
-yy_token_t yy_eval_number(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
-yy_token_t yy_eval_datetime(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
-yy_token_t yy_eval_string(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
-yy_token_t yy_eval_bool(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
-yy_token_t yy_eval(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
+yy_token_t yy_parse_number(const char *begin, const char *end);
+yy_token_t yy_parse_datetime(const char *begin, const char *end);
+yy_token_t yy_parse_string(const char *begin, const char *end);
+yy_token_t yy_parse_bool(const char *begin, const char *end);
+yy_token_t yy_parse(const char *begin, const char *end);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif
+#endif // EXPR_H

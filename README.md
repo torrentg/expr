@@ -15,7 +15,7 @@ __Grammar for types__
 
 ```
 number      = (0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?(0|[1-9][0-9]*))?
-datetime    = (19[7-9][0-9]|2[0-9]{3})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])(.[0-9]{1,3}Z?)?)?
+datetime    = '"' (19[7-9][0-9]|2[0-9]{3})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])(.[0-9]{1,3}Z?)?)? '"'
 boolean     = 'true' | 'True' | 'TRUE' | 'false' | 'False| 'FALSE'
 string      = '"' ([^\\] | '\n' | '\t' | '\"' | '\\')* '"'
 variable    = '${' [a-zA-Z]('.'? [a-zA-Z0-9_]+)* '}'
@@ -73,7 +73,9 @@ numConst    = <see list below>
 | number   | `ceil`       | (numExpr)                     | Smallest int not less than num           |
 | number   | `floor`      | (numExpr)                     | Largest int not less than num            |
 | number   | `trunc`      | (numExpr)                     | Round to integer, toward zero            |
+| number   | `clamp`      | (numExpr, numExpr, numExpr)   | Coerce a value to be in a fixed range    |
 | number   | `length`     | (strExpr)                     | Length of a string                       |
+| number   | `find`       | (strExpr, strExpr, numExpr)   | Locate a text string into another text   |
 | number   | `datepart`   | (timeTerm, timePart)          | Returns a part from a date               |
 | number   | `min`        | (numExpr, numExpr)            | Returns the smaller of two given values  |
 | number   | `max`        | (numExpr, numExpr)            | Returns the larger of two given values   |
@@ -101,6 +103,7 @@ timeFunc    = <see list below>
 | datetime | `dateadd`    | (timeTerm, numExpr, timePart) | Increments/decrements a date part        |
 | datetime | `dateset`    | (timeTerm, numExpr, timePart) | Modifies a date part                     |
 | datetime | `datetrunc`  | (timeTerm, timePart)          | Returns a date truncated to datepart     |
+| datetime | `clamp`      | (timeTerm, timeTerm, timeTerm)| Coerce a datetime to be in a fixed range |
 | datetime | `min`        | (timeTerm, timeTerm)          | Returns the smaller of two given values  |
 | datetime | `max`        | (timeTerm, timeTerm)          | Returns the larger of two given values   |
 
@@ -120,6 +123,7 @@ strFunc     = <see list below>
 | string   | `unescape`   | (strExpr)                     | Replaces '\\\\', '\\n', '\\t' and '\\"'  |
 | string   | `+`          | (strExpr, strExpr)            | Concatenate two strings                  |
 | string   | `substr`     | (strExpr, numExpr, numExpr)   | Extracts a substring from a given string |
+| string   | `replace`    | (strExpr, strExpr, strExpr)   | Replaces all ocurrences of x in a string |
 | string   | `min`        | (strExpr, strExpr)            | Returns the smaller of two given values  |
 | string   | `max`        | (strExpr, strExpr)            | Returns the larger of two given values   |
 
@@ -154,19 +158,20 @@ boolFunc     = <see list below>
 | boolean  | `not`        | (boolExpr)                    | Negate                                   |
 | boolean  | `isinf`      | (numExpr)                     | Checks if a number is &plusmn; infinite  |
 | boolean  | `isnan`      | (numExpr)                     | Checks if a number is a NaN              |
+| boolean  | `iserror`    | (numExpr) <br/> (strExpr) <br> (timeTerm) | Checks if there is an error              |
 
 __Operators precedence__
 
 Expr implements the [standard](https://en.cppreference.com/w/c/language/operator_precedence) operators precedence
 
 | Precedence  | Type             | Symbols      | Associativity  |
-|:----------: | ---------------- | -------------| :------------- |
+|:----------: | ---------------- | -------------| :------------: |
 |     1       | Grouping         | ()           | left-to-right  |
 |     2       | Power            | ^            | left-to-right  |
 |     3       | Not, plus, minus | !, +, -      | right-to-left  |
 |     4       | Prod, div, mod   | *, /, %      | left-to-right  |
 |     5       | Add, subtract    | +, -         | left-to-right  |
-|     6       | comparison       | <, <=, >, >= | left-to-right  |
-|     7       | equal            | ==, !=       | left-to-right  |
-|     8       | and              | &&           | left-to-right  |
-|     9       | or               | \|\|         | left-to-right  |
+|     6       | Comparison       | <, <=, >, >= | left-to-right  |
+|     7       | Equal            | ==, !=       | left-to-right  |
+|     8       | And              | &&           | left-to-right  |
+|     9       | Or               | \|\|         | left-to-right  |
