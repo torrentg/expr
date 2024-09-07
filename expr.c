@@ -1360,7 +1360,7 @@ static void process_current_symbol(yy_parser_t *parser)
         {
             if (op->type == YY_TOKEN_NULL) {
                 // unmatched parentesis
-                parser->error = YY_ERROR_SYNTAX;
+                parser->error = YY_ERROR;
                 return;
             }
 
@@ -1433,6 +1433,22 @@ static void expect(yy_parser_t *parser, yy_symbol_e type)
     }
 
     consume(parser);
+}
+
+/**
+ * Finalize parse.
+ * 
+ * @param[in] parser Parser to update.
+ */
+static void finalize(yy_parser_t *parser)
+{
+    if (parser->error != YY_OK)
+        return;
+
+    if (parser->curr_symbol.type == YY_SYMBOL_END)
+        consume(parser);
+    else
+        parser->error = YY_ERROR_SYNTAX;
 }
 
 static void init_parser(yy_parser_t *parser, const char *begin, const char *end, yy_stack_t *stack)
@@ -1586,9 +1602,6 @@ EXPR_NUMBER_START:
         case YY_SYMBOL_POWER_OP: 
             consume(parser);
             goto EXPR_NUMBER_START;
-        case YY_SYMBOL_END: 
-            consume(parser);
-            break;
         default:
             break;
     }
@@ -1687,9 +1700,6 @@ EXPR_STRING_START:
             parser->curr_symbol.type = YY_SYMBOL_CONCAT_OP;
             consume(parser);
             goto EXPR_STRING_START;
-        case YY_SYMBOL_END: 
-            consume(parser);
-            break;
         default:
             break;
     }
@@ -1852,9 +1862,6 @@ EXPR_BOOL_START:
         case YY_SYMBOL_DISTINCT_OP: 
             consume(parser);
             goto EXPR_BOOL_START;
-        case YY_SYMBOL_END: 
-            consume(parser);
-            break;
         default:
             break;
     }
@@ -2016,9 +2023,7 @@ yy_error_e yy_compile_number(const char *begin, const char *end, yy_stack_t *sta
 
     init_parser(&parser, begin, end, stack);
     parse_expr_number(&parser);
-
-    if (parser.error == YY_OK && parser.curr_symbol.type != YY_SYMBOL_END)
-        parser.error = YY_ERROR_SYNTAX;
+    finalize(&parser);
 
     if (err && parser.error != YY_OK)
         *err = parser.curr;
@@ -2040,9 +2045,7 @@ yy_error_e yy_compile_datetime(const char *begin, const char *end, yy_stack_t *s
 
     init_parser(&parser, begin, end, stack);
     parse_expr_datetime(&parser);
-
-    if (parser.error == YY_OK && parser.curr_symbol.type != YY_SYMBOL_END)
-        parser.error = YY_ERROR_SYNTAX;
+    finalize(&parser);
 
     if (err && parser.error != YY_OK)
         *err = parser.curr;
@@ -2064,9 +2067,7 @@ yy_error_e yy_compile_string(const char *begin, const char *end, yy_stack_t *sta
 
     init_parser(&parser, begin, end, stack);
     parse_expr_string(&parser);
-
-    if (parser.error == YY_OK && parser.curr_symbol.type != YY_SYMBOL_END)
-        parser.error = YY_ERROR_SYNTAX;
+    finalize(&parser);
 
     if (err && parser.error != YY_OK)
         *err = parser.curr;
@@ -2088,9 +2089,7 @@ yy_error_e yy_compile_bool(const char *begin, const char *end, yy_stack_t *stack
 
     init_parser(&parser, begin, end, stack);
     parse_expr_bool(&parser);
-
-    if (parser.error == YY_OK && parser.curr_symbol.type != YY_SYMBOL_END)
-        parser.error = YY_ERROR_SYNTAX;
+    finalize(&parser);
 
     if (err && parser.error != YY_OK)
         *err = parser.curr;
@@ -2293,7 +2292,7 @@ yy_token_t yy_eval_string(const char *begin, const char *end, yy_stack_t *stack,
 yy_token_t yy_parse_number(const char *begin, const char *end)
 {
     if (!begin || !end || begin >= end)
-        return token_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR);
 
     bool negated = false;
     yy_symbol_t symbol = {0};
@@ -2324,7 +2323,7 @@ yy_token_t yy_parse_number(const char *begin, const char *end)
 yy_token_t yy_parse_string(const char *begin, const char *end)
 {
     if (!begin || !end || begin > end)
-        return token_error(YY_ERROR_VALUE);
+        return token_error(YY_ERROR);
     
     size_t len = end - begin;
 
@@ -2343,7 +2342,7 @@ yy_token_t yy_parse_string(const char *begin, const char *end)
 yy_token_t yy_parse_bool(const char *begin, const char *end)
 {
     if (!begin || !end || begin >= end)
-        goto BOOL_ERROR;
+        return token_error(YY_ERROR);
 
     const char *ptr = begin;
 
@@ -2441,7 +2440,7 @@ BOOL_ERROR:
 yy_token_t yy_parse_datetime(const char *begin, const char *end)
 {
     if (!begin || !end || begin > end)
-        goto DATETIME_ERROR;
+        return token_error(YY_ERROR);
 
     size_t len = 0;
     char buf[128];
