@@ -96,6 +96,7 @@ const char * symbol_to_str(yy_symbol_e type)
         case YY_SYMBOL_ISNAN: return "ISNAN";
         case YY_SYMBOL_ISINF: return "ISINF";
         case YY_SYMBOL_ISERROR: return "ISERROR";
+        case YY_SYMBOL_IFELSE: return "IFELSE";
         case YY_SYMBOL_END: return "END";
         default: return "UNKNOW";
     }
@@ -961,6 +962,7 @@ void test_read_symbol_ok(void)
     check_next_ok("find(\"abcdef\", \"a\", 3)", YY_SYMBOL_FIND, &symbol);
     check_next_ok("clamp(1, 7, 15)", YY_SYMBOL_CLAMP, &symbol);
     check_next_ok("iserror(${x})", YY_SYMBOL_ISERROR, &symbol);
+    check_next_ok("ifelse(1==1, 1, 2)", YY_SYMBOL_IFELSE, &symbol);
     check_next_ok("pow(2, 3+1)", YY_SYMBOL_POWER, &symbol);
     check_next_ok("not(${b})", YY_SYMBOL_NOT, &symbol);
     check_next_ok("< 5", YY_SYMBOL_LESS_OP, &symbol);
@@ -1031,6 +1033,7 @@ void test_compile_number(void)
     check_compile_number_ok("clamp(6, 5, 7)");
     check_compile_number_ok("clamp(7, 5, 7)");
     check_compile_number_ok("clamp(8, 5, 7)");
+    check_compile_number_ok("ifelse(1 < 4 && false, 5, 7)");
 
     check_compile_number_ko(" ");
     check_compile_number_ko("not_a_var");

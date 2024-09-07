@@ -159,6 +159,7 @@ typedef enum yy_symbol_e
     YY_SYMBOL_SUBSTR,               //!< substr
     YY_SYMBOL_REPLACE,              //!< replace
     YY_SYMBOL_UNESCAPE,             //!< unescape
+    YY_SYMBOL_IFELSE,               //!< ifelse
     YY_SYMBOL_END,                  //!< No more symbols (maintain at the end of list)
 } yy_symbol_e;
 
@@ -271,6 +272,7 @@ static yy_token_t func_and(yy_token_t x, yy_token_t y);
 static yy_token_t func_or(yy_token_t x, yy_token_t y);
 static yy_token_t func_max(yy_token_t x, yy_token_t y);
 static yy_token_t func_min(yy_token_t x, yy_token_t y);
+static yy_token_t func_ifelse(yy_token_t cond, yy_token_t x, yy_token_t y);
 
 // Identifiers list (alphabetical order)
 static const yy_identifier_t identifiers[] =
@@ -295,6 +297,7 @@ static const yy_identifier_t identifiers[] =
     { "false",     YY_SYMBOL_FALSE     },
     { "find",      YY_SYMBOL_FIND      },
     { "floor",     YY_SYMBOL_FLOOR     },
+    { "ifelse",    YY_SYMBOL_IFELSE    },
     { "iserror",   YY_SYMBOL_ISERROR   },
     { "isinf",     YY_SYMBOL_ISINF     },
     { "isnan",     YY_SYMBOL_ISNAN     },
@@ -391,6 +394,7 @@ static const yy_token_t symbol_to_token[] =
     [YY_SYMBOL_UNESCAPE]        = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_unescape   , 1, .is_not_pure = true) },
     [YY_SYMBOL_MIN]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_min        , 2) },
     [YY_SYMBOL_MAX]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_max        , 2) },
+    [YY_SYMBOL_IFELSE]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_ifelse     , 3) },
     [YY_SYMBOL_END]             = { .type = YY_TOKEN_NULL }
 };
 
@@ -1568,6 +1572,16 @@ static void parse_term_number(yy_parser_t *parser)
             parse_expr_number(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
+        case YY_SYMBOL_IFELSE:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_bool(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_number(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_number(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
         default:
             parser->error = YY_ERROR_SYNTAX;
     }
@@ -1659,6 +1673,16 @@ static void parse_term_string(yy_parser_t *parser)
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
             parse_expr_string(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_string(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_string(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
+        case YY_SYMBOL_IFELSE:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_bool(parser);
             expect(parser, YY_SYMBOL_COMMA);
             parse_expr_string(parser);
             expect(parser, YY_SYMBOL_COMMA);
@@ -1987,6 +2011,16 @@ static void parse_term_datetime(yy_parser_t *parser)
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
             parse_expr_datetime(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_datetime(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_datetime(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
+        case YY_SYMBOL_IFELSE:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_bool(parser);
             expect(parser, YY_SYMBOL_COMMA);
             parse_expr_datetime(parser);
             expect(parser, YY_SYMBOL_COMMA);
@@ -3699,6 +3733,20 @@ static yy_token_t func_max(yy_token_t x, yy_token_t y)
     }
 
     return token_error(YY_ERROR_VALUE);
+}
+
+static yy_token_t func_ifelse(yy_token_t cond, yy_token_t x, yy_token_t y)
+{
+    if (cond.type != YY_TOKEN_BOOL)
+        return token_error(YY_ERROR_VALUE);
+
+    if (x.type != y.type)
+        return token_error(YY_ERROR_VALUE);
+
+    if (x.type != YY_TOKEN_NUMBER && x.type != YY_TOKEN_DATETIME && x.type != YY_TOKEN_STRING)
+        return token_error(YY_ERROR_VALUE);
+
+    return (cond.bool_val ? x : y);
 }
 
 static yy_token_t func_clamp(yy_token_t x, yy_token_t vmin, yy_token_t vmax)

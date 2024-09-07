@@ -58,12 +58,6 @@ numConst    = <see list below>
 
 | Return   | Function     | Params                        | Description                              |
 | -------- | ------------ | ----------------------------- | -------------------------------------    |
-| number   | `+`          | (numExpr, numExpr)            | Addition                                 |
-| number   | `-`          | (numExpr, numExpr)            | Subtraction                              |
-| number   | `*`          | (numExpr, numExpr)            | Multiplication                           |
-| number   | `/`          | (numExpr, numExpr)            | Division                                 |
-| number   | `%`, `mod`   | (numExpr, numExpr)            | Modulus                                  |
-| number   | `^`, `pow`   | (numExpr, numExpr)            | Power                                    |
 | number   | `-`          | (numExpr)                     | Minus (infix operator)                   |
 | number   | `abs`        | (numExpr)                     | Absolute value                           |
 | number   | `sin`        | (numExpr)                     | Sine                                     |
@@ -75,13 +69,19 @@ numConst    = <see list below>
 | number   | `ceil`       | (numExpr)                     | Smallest int not less than num           |
 | number   | `floor`      | (numExpr)                     | Largest int not less than num            |
 | number   | `trunc`      | (numExpr)                     | Round to integer, toward zero            |
+| number   | `+`          | (numExpr, numExpr)            | Addition                                 |
+| number   | `-`          | (numExpr, numExpr)            | Subtraction                              |
+| number   | `*`          | (numExpr, numExpr)            | Multiplication                           |
+| number   | `/`          | (numExpr, numExpr)            | Division                                 |
+| number   | `%`, `mod`   | (numExpr, numExpr)            | Modulus                                  |
+| number   | `^`, `pow`   | (numExpr, numExpr)            | Power                                    |
+| number   | `min`        | (numExpr, numExpr)            | Returns the smaller of two given values  |
+| number   | `max`        | (numExpr, numExpr)            | Returns the larger of two given values   |
 | number   | `clamp`      | (numExpr, numExpr, numExpr)   | Coerce a value to be in a fixed range    |
 | number   | `length`     | (strExpr)                     | Length of a string                       |
 | number   | `find`       | (strExpr, strExpr, numExpr)   | Locate a text string into another text   |
 | number   | `datepart`   | (timeExpr, timePart)          | Returns a part from a date               |
-| number   | `min`        | (numExpr, numExpr)            | Returns the smaller of two given values  |
-| number   | `max`        | (numExpr, numExpr)            | Returns the larger of two given values   |
-
+| number   | `ifelse`     | (boolExpr, numExpr, numExpr)  | Conditional value                        |
 
 | Type   | Constant | Value               |
 | ------ | -------- | --------------------|
@@ -111,6 +111,7 @@ timeFunc    = <see list below>
 | datetime | `clamp`      | (timeExpr, timeExpr, timeExpr)| Coerce a datetime to be in a fixed range |
 | datetime | `min`        | (timeExpr, timeExpr)          | Returns the smaller of two given values  |
 | datetime | `max`        | (timeExpr, timeExpr)          | Returns the larger of two given values   |
+| datetime | `ifelse`     | (boolExpr, timeExpr, timeExpr)| Conditional value                        |
 
 __Grammar for string expressions__
 
@@ -130,10 +131,12 @@ strFunc     = <see list below>
 | string   | `upper`      | (strExpr)                     | Converts all characters to uppercase     |
 | string   | `unescape`   | (strExpr)                     | Replaces '\\\\', '\\n', '\\t' and '\\"'  |
 | string   | `+`          | (strExpr, strExpr)            | Concatenate two strings                  |
-| string   | `substr`     | (strExpr, numExpr, numExpr)   | Extracts a substring from a given string |
-| string   | `replace`    | (strExpr, strExpr, strExpr)   | Replaces all ocurrences of x in a string |
 | string   | `min`        | (strExpr, strExpr)            | Returns the smaller of two given values  |
 | string   | `max`        | (strExpr, strExpr)            | Returns the larger of two given values   |
+| string   | `substr`     | (strExpr, numExpr, numExpr)   | Extracts a substring from a given string |
+| string   | `replace`    | (strExpr, strExpr, strExpr)   | Replaces all ocurrences of x in a string |
+| string   | `ifelse`     | (boolExpr, strExpr, strExpr)  | Conditional value                        |
+| string   | `str`        | (numExpr)<br/>(timeExpr)<br/>(boolExpr)<br/>(strExpr) | Converts value to string                 |
 
 __Grammar for boolean expressions__
 
