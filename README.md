@@ -18,7 +18,7 @@ number      = (0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?(0|[1-9][0-9]*))?
 datetime    = '"' (19[7-9][0-9]|2[0-9]{3})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])(.[0-9]{1,3}Z?)?)? '"'
 boolean     = 'true' | 'True' | 'TRUE' | 'false' | 'False| 'FALSE'
 string      = '"' ([^\\] | '\n' | '\t' | '\"' | '\\')* '"'
-variable    = '${' [a-zA-Z]('.'? [a-zA-Z0-9_]+)* '}'
+variable    = '$' ( [a-zA-Z][a-zA-Z0-9_]* | '{' [^{}]+ '}' )
 timePart    = '"' ('year' | 'month' | 'day' | 'hour' | 'minute' | 'second' | 'millis') '"'
 ```
 
@@ -31,12 +31,16 @@ Datetime: UTC millis from epoch-time in [ISO-8601](https://en.wikipedia.org/wiki
 * Not supported: ~~`24/08/2024`, `08/24/2024`, `24 August 2024`, etc.~~
 
 String: double-quoted string supporting escape characters (`\n`, `\t`, `\"`, `\\`)
-* Example: `"I am a string"`, `"val=\"xxx\""`
-* Invalid: ~~`"unsupported escaped char -> \s"`~~
+* Examples: `"I am a string"`, `"val=\"xxx\""`
+* Not supported: A string surrounded by quotes containing a NUL.
 
 Boolean: `true`, `True`, `TRUE`, `false`, `False`, `FALSE`
-* Example: `true`, `false`
+* Examples: `true`, `false`
 * Not supported: ~~`1`, `0`, `TrUe`~~
+
+Variable: Variable name prefixed by `'$'`
+* Examples: `$x`, `$sum_values`, `${x}`, `${free var name, yep}`
+* Not supported: ~~`$a-b`, `$_a`, `${x}d}`, `${}`~~
 
 __Grammar for numeric expressions__
 

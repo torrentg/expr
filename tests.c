@@ -295,7 +295,7 @@ void check_read_symbol_variable_ok(const char *str, const char *expected_val)
     TEST_MSG("Case='%.*s', error=invalid-length", (int) len, str);
     TEST_CHECK(strncmp(symbol.variable.ptr, expected_val, expected_len) == 0);
     TEST_MSG("Case='%.*s', expected=%s, result=%.*s", (int) len, str, expected_val, (int) symbol.variable.len, symbol.variable.ptr);
-    TEST_CHECK(symbol.lexeme.len == expected_len + 3);
+    TEST_CHECK(symbol.lexeme.len == expected_len + (str[1] == '{' ? 3 : 1));
     TEST_MSG("Case='%.*s', error=invalid-lexeme-len", (int) len, str);
 }
 
@@ -852,6 +852,12 @@ void test_parse_string_ko(void)
 
 void test_read_symbol_variable_ok(void)
 {
+    check_read_symbol_variable_ok("$x", "x");
+    check_read_symbol_variable_ok("$x_", "x_");
+    check_read_symbol_variable_ok("$x__", "x__");
+    check_read_symbol_variable_ok("$abc", "abc");
+    check_read_symbol_variable_ok("$abc_xyz", "abc_xyz");
+    check_read_symbol_variable_ok("$abc_xyz_", "abc_xyz_");
     check_read_symbol_variable_ok("${x}", "x");
     check_read_symbol_variable_ok("${a.b.c}", "a.b.c");
     check_read_symbol_variable_ok("${abc_def}", "abc_def");
@@ -859,24 +865,27 @@ void test_read_symbol_variable_ok(void)
     check_read_symbol_variable_ok("${x01.A23._56}", "x01.A23._56");
     check_read_symbol_variable_ok("${x__}", "x__");
     check_read_symbol_variable_ok("${x._._._}", "x._._._");
+    check_read_symbol_variable_ok("${x[1]}", "x[1]");
+    check_read_symbol_variable_ok("${a b c}", "a b c");
+    check_read_symbol_variable_ok("${ }", " ");
 }
 
 void test_read_symbol_variable_ko(void)
 {
     check_read_symbol_variable_ko("");
     check_read_symbol_variable_ko(" ");
-    check_read_symbol_variable_ko(" ${x}");
-    check_read_symbol_variable_ko("x");
-    check_read_symbol_variable_ko("$x");
-    check_read_symbol_variable_ko("$x}");
-    check_read_symbol_variable_ko("${xxxx");
-    check_read_symbol_variable_ko("${0abc}");
-    check_read_symbol_variable_ko("${.abc}");
-    check_read_symbol_variable_ko("${_abc}");
-    check_read_symbol_variable_ko("${abc..def}");
-    check_read_symbol_variable_ko("${abc.def.}");
-    check_read_symbol_variable_ko("${abc+def}");
-    check_read_symbol_variable_ko("${abc-def}");
+    check_read_symbol_variable_ko(" $x"); // not trimmed
+    check_read_symbol_variable_ko(" ${x}"); // not trimmed
+    check_read_symbol_variable_ko("$ x");
+    check_read_symbol_variable_ko("$_x");
+    check_read_symbol_variable_ko("$+");
+    check_read_symbol_variable_ko("$ñ");
+    check_read_symbol_variable_ko("$[1]");
+    check_read_symbol_variable_ko("$_");
+    check_read_symbol_variable_ko("${");
+    check_read_symbol_variable_ko("${}");
+    check_read_symbol_variable_ko("${{a}");
+    check_read_symbol_variable_ko("${ab{cd}");
 }
 
 void test_read_symbol_ok(void)
@@ -905,7 +914,7 @@ void test_read_symbol_ok(void)
     check_next_ok("( 1 + 4)", YY_SYMBOL_PAREN_LEFT, &symbol);
     check_next_ok(") * 3", YY_SYMBOL_PAREN_RIGHT, &symbol);
     check_next_ok(", 25)", YY_SYMBOL_COMMA, &symbol);
-    check_next_ok("&& (${x} > 4)", YY_SYMBOL_AND_OP, &symbol);
+    check_next_ok("&& ($x > 4)", YY_SYMBOL_AND_OP, &symbol);
     check_next_ok("|| x", YY_SYMBOL_OR_OP, &symbol);
     check_next_ok("== 25", YY_SYMBOL_EQUALS_OP, &symbol);
     check_next_ok("!= 42", YY_SYMBOL_DISTINCT_OP, &symbol);
@@ -973,7 +982,7 @@ void test_read_symbol_ko(void)
     check_next_ko("|a");
     check_next_ko("| a");
     check_next_ko("\"string lacks ending double-quote");
-    check_next_ko("$a");
+    check_next_ko("${}");
     check_next_ko(".25");
     check_next_ko("25..0");
     check_next_ko("2e06");

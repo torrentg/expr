@@ -804,8 +804,8 @@ STRING_END:
 /**
  * Parse a variable name.
  * 
- * Format  = '${' [a-zA-Z]('.'? [a-zA-Z0-9_]+)* '}'
- * Example = ${train.001.driver}
+ * Format  = '$' ( [a-zA-Z][a-zA-Z0-9_]* | '{' [^{}]+ '}')
+ * Examples = $a, $a_x, ${train.001.driver}, ${train[1].driver}, ${with espaces}
  * 
  * Parse until ending char is found.
  * Input string range can be greater than parsed string.
@@ -824,51 +824,66 @@ static yy_error_e read_symbol_variable(const char *begin, const char *end, yy_sy
 {
     assert(begin && end && begin <= end && symbol);
 
+    bool has_braces = false;
     const char *ptr = begin;
 
-    if (end - ptr < 4 || *ptr != '$' || *++ptr != '{') // no place for ${x}
+    if (end - ptr < 2 || *ptr != '$')
         return YY_ERROR_SYNTAX;
 
     switch (*++ptr) {
         case 'A' ... 'Z':
-        case 'a' ... 'z': goto VARIABLE_NAME;
-        default: return YY_ERROR_SYNTAX;
+        case 'a' ... 'z': 
+            goto VARIABLE_WITHOUT_BRACES;
+        case '{': 
+            goto VARIABLE_WITH_BRACES;
+        default:
+            return YY_ERROR_SYNTAX;
     }
 
-VARIABLE_NAME:
+VARIABLE_WITHOUT_BRACES:
 
-    if (++ptr == end)
-        return YY_ERROR_SYNTAX;
+    if (unlikely(++ptr == end))
+        goto VARIABLE_END;
 
     switch (*ptr) {
-        case '.': 
-            if (ptr[-1] == '.') // consecutive dots are not allowed
-                return YY_ERROR_SYNTAX;
-            fallthrough;
         case '0' ... '9':
         case 'A' ... 'Z':
         case '_':
         case 'a' ... 'z':
-            goto VARIABLE_NAME;
-        case '}':
-            if (ptr[-1] == '.') // ending dot is not allowed
-                return YY_ERROR_SYNTAX;
+            goto VARIABLE_WITHOUT_BRACES;
+        default:
             goto VARIABLE_END;
-        default: 
-            return YY_ERROR_SYNTAX;
     }
 
-VARIABLE_END:
+VARIABLE_WITH_BRACES:
+
+    has_braces = true;
+
+    if (unlikely(++ptr == end) || *ptr == '{' || *ptr == '}')
+        return YY_ERROR_SYNTAX;
+
+VARIABLE_WITH_BRACES_CONT:
+
+    if (unlikely(++ptr == end))
+        return YY_ERROR_SYNTAX;
+
+    switch (*ptr) {
+        case '{': return YY_ERROR_SYNTAX;
+        case '}': break;
+        default: goto VARIABLE_WITH_BRACES_CONT;
+    }
 
     ++ptr;
 
-    assert(ptr - begin > 3);
+VARIABLE_END:
+
+    assert(ptr - begin > 1);
 
     symbol->type = YY_SYMBOL_VARIABLE;
     symbol->lexeme.ptr = begin;
     symbol->lexeme.len = ptr - begin;
-    symbol->variable.ptr = begin + 2;
-    symbol->variable.len = symbol->lexeme.len - 3;
+    symbol->variable.ptr = begin + (has_braces ? 2 : 1);
+    symbol->variable.len = symbol->lexeme.len - (has_braces ? 3 : 1);
 
     return YY_OK;
 }
@@ -3079,7 +3094,7 @@ static yy_token_t func_str(yy_token_t x, yy_eval_ctx_t *ctx)
     if (x.type == YY_TOKEN_DATETIME)
     {
         yy_str_t ret = {0};
-        char buf[32] = {0};
+        char buf[64] = {0};
 
         datetime_to_str(x.datetime_val, buf);
 
