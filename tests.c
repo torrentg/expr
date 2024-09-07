@@ -3,21 +3,6 @@
 
 #define EPSILON 1e-14
 
-char * datetime_to_str(uint64_t millis_utc, char *ret)
-{
-    time_t time = (time_t)(millis_utc / 1000UL);
-    struct tm stm = {0};
-
-    gmtime_r(&time, &stm);
-
-    sprintf(ret, "%04d-%02d-%02dT%02d:%02d:%02d.%03ldZ",
-        stm.tm_year + 1900, stm.tm_mon + 1,
-        stm.tm_mday, stm.tm_hour, stm.tm_min, stm.tm_sec,
-        (long)(millis_utc % 1000UL));
-
-    return ret;
-}
-
 yy_symbol_e get_function_symbol(void (*func)(void))
 {
     for (size_t i = 0; i < (size_t) YY_SYMBOL_END; i++)
@@ -97,6 +82,7 @@ const char * symbol_to_str(yy_symbol_e type)
         case YY_SYMBOL_ISINF: return "ISINF";
         case YY_SYMBOL_ISERROR: return "ISERROR";
         case YY_SYMBOL_IFELSE: return "IFELSE";
+        case YY_SYMBOL_STR: return "STR";
         case YY_SYMBOL_END: return "END";
         default: return "UNKNOW";
     }
@@ -965,6 +951,7 @@ void test_read_symbol_ok(void)
     check_next_ok("ifelse(1==1, 1, 2)", YY_SYMBOL_IFELSE, &symbol);
     check_next_ok("pow(2, 3+1)", YY_SYMBOL_POWER, &symbol);
     check_next_ok("not(${b})", YY_SYMBOL_NOT, &symbol);
+    check_next_ok("str(now())", YY_SYMBOL_STR, &symbol);
     check_next_ok("< 5", YY_SYMBOL_LESS_OP, &symbol);
     check_next_ok("> 42", YY_SYMBOL_GREAT_OP, &symbol);
 }
@@ -1093,6 +1080,10 @@ void test_compile_string(void)
     check_compile_string_ok("\"\\\\escaped string\\\\\"");
     check_compile_string_ok("replace(\"Hi Bob!\", \"Bob\", \"John\")");
     check_compile_string_ok("trim(replace(\" Hi BOB \", upper(\"Bob\"), lower(\"John\"))) + \"!\"");
+    check_compile_string_ok("str(PI + 10)");
+    check_compile_string_ok("str(now())");
+    check_compile_string_ok("str(\"Hi Bob\" + \"!\")");
+    check_compile_string_ok("str(1 < 3)");
 }
 
 void test_compile_bool(void)
@@ -1107,7 +1098,7 @@ void test_compile_bool(void)
     check_compile_bool_ok("1 < 2 && 1 > 2");
     check_compile_bool_ok("length(\"xxx\") < 5 || isinf(cos(PI))");
     check_compile_bool_ok("length(\"xxx\") > 5 == false");
-    check_compile_bool_ok("exp(1) != E || length(\"xxx\") > 0");
+    check_compile_bool_ok("exp(1) != E && length(\"xxx\") > 0");
 }
 
 void test_sizeof(void)

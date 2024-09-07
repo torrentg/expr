@@ -27,6 +27,7 @@ SOFTWARE.
 
 #include <math.h>
 #include <time.h>
+#include <stdio.h>
 #include <errno.h>
 #include <ctype.h>
 #include <stddef.h>
@@ -160,6 +161,7 @@ typedef enum yy_symbol_e
     YY_SYMBOL_REPLACE,              //!< replace
     YY_SYMBOL_UNESCAPE,             //!< unescape
     YY_SYMBOL_IFELSE,               //!< ifelse
+    YY_SYMBOL_STR,                  //!< str
     YY_SYMBOL_END,                  //!< No more symbols (maintain at the end of list)
 } yy_symbol_e;
 
@@ -218,7 +220,7 @@ static const int days_in_month[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 
 // Forward declarations
 static bool is_temp_ptr(yy_eval_ctx_t *ctx, const char *ptr);
 static void free_str(yy_eval_ctx_t *ctx, yy_str_t *str);
-static yy_token_e parse_expr_generic(yy_parser_t *parser);
+static yy_token_e parse_expr_generic(yy_parser_t *parser, bool check_bool);
 static void parse_expr_datetime(yy_parser_t *parser);
 static void parse_expr_number(yy_parser_t *parser);
 static void parse_expr_string(yy_parser_t *parser);
@@ -230,6 +232,7 @@ static yy_token_t func_datepart(yy_token_t date, yy_token_t part);
 static yy_token_t func_dateadd(yy_token_t date, yy_token_t value, yy_token_t part);
 static yy_token_t func_dateset(yy_token_t date, yy_token_t value, yy_token_t part);
 static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part);
+static yy_token_t func_str(yy_token_t str, yy_eval_ctx_t *ctx);
 static yy_token_t func_unescape(yy_token_t str, yy_eval_ctx_t *ctx);
 static yy_token_t func_trim(yy_token_t str, yy_eval_ctx_t *ctx);
 static yy_token_t func_lower(yy_token_t str, yy_eval_ctx_t *ctx);
@@ -313,6 +316,7 @@ static const yy_identifier_t identifiers[] =
     { "replace",   YY_SYMBOL_REPLACE   },
     { "sin",       YY_SYMBOL_SIN       },
     { "sqrt",      YY_SYMBOL_SQRT      },
+    { "str",       YY_SYMBOL_STR       },
     { "substr",    YY_SYMBOL_SUBSTR    },
     { "tan",       YY_SYMBOL_TAN       },
     { "trim",      YY_SYMBOL_TRIM      },
@@ -385,6 +389,7 @@ static const yy_token_t symbol_to_token[] =
     [YY_SYMBOL_DATETRUNC]       = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_datetrunc  , 2) },
     [YY_SYMBOL_LENGTH]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_length     , 1) },
     [YY_SYMBOL_FIND]            = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_find       , 3) },
+    [YY_SYMBOL_STR]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_str        , 1, .is_not_pure = true) },
     [YY_SYMBOL_LOWER]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_lower      , 1, .is_not_pure = true) },
     [YY_SYMBOL_UPPER]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_upper      , 1, .is_not_pure = true) },
     [YY_SYMBOL_TRIM]            = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_trim       , 1, .is_not_pure = true) },
@@ -1326,7 +1331,7 @@ static void process_current_symbol(yy_parser_t *parser)
         {
             if (op->type == YY_TOKEN_NULL)
                 break;
-            
+
             push_to_stack(parser, op);
             pop_operators(parser);
         }
@@ -1650,6 +1655,12 @@ static void parse_term_string(yy_parser_t *parser)
             parse_expr_string(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
+        case YY_SYMBOL_STR:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_generic(parser, true);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
         case YY_SYMBOL_MIN:
         case YY_SYMBOL_MAX:
             consume(parser);
@@ -1747,18 +1758,18 @@ static void parse_expr_by_type(yy_parser_t *parser, yy_token_e type)
 /**
  * Parse an expression until an unrecognized symbol is found.
  * 
- * We don't try to parse as YY_TOKEN_BOOL to avoid to enter in a loop.
- * 
  * @param[in] parser Parser to update.
+ * @param[in] check_bool Checks bool type (to avoid a non-ending loop parsing a bool).
  * 
- * @return YY_TOKEN_NUMBER - Parsed number expression,
+ * @return YY_TOKEN_BOOL - Parsed bool expression,
+ *         YY_TOKEN_NUMBER - Parsed number expression,
  *         YY_TOKEN_DATETIME - Parsed datetime expression,
  *         YY_TOKEN_STRING - Parsed string expression,
  *         YY_TOKEN_ERROR - Error parsing expression (see parser.error).
  */
-static yy_token_e parse_expr_generic(yy_parser_t *parser)
+static yy_token_e parse_expr_generic(yy_parser_t *parser, bool check_bool)
 {
-    static const yy_token_e types[] = {YY_TOKEN_NUMBER, YY_TOKEN_DATETIME, YY_TOKEN_STRING};
+    static const yy_token_e types[] = {YY_TOKEN_BOOL, YY_TOKEN_NUMBER, YY_TOKEN_DATETIME, YY_TOKEN_STRING};
 
     if (parser->error != YY_OK)
         return YY_TOKEN_ERROR;
@@ -1766,23 +1777,16 @@ static yy_token_e parse_expr_generic(yy_parser_t *parser)
     yy_parser_t orig_parser = *parser;
     yy_stack_t orig_stack = *parser->stack;
 
-    for (size_t i = 0; i < (sizeof(types)/sizeof(types[0])); i++)
+    for (size_t i = (check_bool ? 0 : 1); i < (sizeof(types)/sizeof(types[0])); i++)
     {
-        //push_to_operators(parser, &symbol_to_token[YY_SYMBOL_PAREN_LEFT]);
-
         parse_expr_by_type(parser, types[i]);
 
         if (parser->error == YY_OK)
-        {
-            //push_to_operators(parser, &symbol_to_token[YY_SYMBOL_PAREN_RIGHT]);
             return types[i];
-        }
-        else
-        {
-            // restore state
-            *parser = orig_parser;
-            *parser->stack = orig_stack;
-        }
+
+        // restore state
+        *parser = orig_parser;
+        *parser->stack = orig_stack;
     }
 
     parser->error = YY_ERROR_SYNTAX;
@@ -1826,7 +1830,7 @@ static void parse_term_bool(yy_parser_t *parser)
         case YY_SYMBOL_ISERROR:
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
-            parse_expr_generic(parser);
+            parse_expr_generic(parser, true);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
             return;
         case YY_SYMBOL_PAREN_LEFT:
@@ -1838,7 +1842,7 @@ static void parse_term_bool(yy_parser_t *parser)
             break;
     }
 
-    yy_token_e type = parse_expr_generic(parser);
+    yy_token_e type = parse_expr_generic(parser, false);
 
     if (type == YY_TOKEN_ERROR || parser->error)
         return;
@@ -2358,7 +2362,7 @@ yy_token_t yy_parse_string(const char *begin, const char *end)
 {
     if (!begin || !end || begin > end)
         return token_error(YY_ERROR);
-    
+
     size_t len = end - begin;
 
     // string too long
@@ -2920,6 +2924,21 @@ static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part)
 
 // --- Functions returning a string
 
+static char * datetime_to_str(uint64_t millis_utc, char *ret)
+{
+    time_t time = (time_t)(millis_utc / 1000UL);
+    struct tm stm = {0};
+
+    gmtime_r(&time, &stm);
+
+    sprintf(ret, "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ",
+        stm.tm_year + 1900, stm.tm_mon + 1,
+        stm.tm_mday, stm.tm_hour, stm.tm_min, stm.tm_sec,
+        (int)(millis_utc % 1000));
+
+    return ret;
+}
+
 INLINE
 static bool is_temp_ptr(yy_eval_ctx_t *ctx, const char *ptr) {
     return (!ptr && (char *) &ctx->stack->data[ctx->stack->len] <= ptr && ptr < (char *) &ctx->stack->data[ctx->stack->reserved]);
@@ -3022,13 +3041,55 @@ static bool duplicate_str(yy_eval_ctx_t *ctx, yy_str_t str, yy_str_t *ret)
     assert(ctx->stack && ctx->tmp_str);
     assert((char *) &ctx->stack->data[ctx->stack->len] <= ctx->tmp_str);
     assert(ctx->tmp_str <= (char *) &ctx->stack->data[ctx->stack->reserved]);
-    
+
     if (!alloc_str(ctx, str.len, ret))
         return false;
 
     memcpy((char *) ret->ptr, str.ptr, str.len);
 
     return true;
+}
+
+static yy_token_t func_str(yy_token_t x, yy_eval_ctx_t *ctx)
+{
+    if (x.type == YY_TOKEN_STRING)
+        return x;
+
+    if (x.type == YY_TOKEN_BOOL)
+    {
+        if (x.bool_val)
+            return token_string("true", 4);
+        else
+            return token_string("false", 5);
+    }
+
+    if (x.type == YY_TOKEN_NUMBER)
+    {
+        yy_str_t ret = {0};
+        char buf[128] = {0};
+
+        snprintf(buf, sizeof(buf), "%lf", x.number_val);
+
+        if (!duplicate_str(ctx, make_string(buf, strlen(buf)), &ret))
+            return token_error(YY_ERROR_MEM);
+
+        return token_string(ret.ptr, ret.len);
+    }
+
+    if (x.type == YY_TOKEN_DATETIME)
+    {
+        yy_str_t ret = {0};
+        char buf[32] = {0};
+
+        datetime_to_str(x.datetime_val, buf);
+
+        if (!duplicate_str(ctx, make_string(buf, strlen(buf)), &ret))
+            return token_error(YY_ERROR_MEM);
+
+        return token_string(ret.ptr, ret.len);
+    }
+
+    return token_error(YY_ERROR);
 }
 
 static yy_token_t func_trim(yy_token_t str, yy_eval_ctx_t *ctx)
@@ -3080,7 +3141,7 @@ static yy_token_t func_lower(yy_token_t str, yy_eval_ctx_t *ctx)
         return str;
 
     yy_str_t ret = {0};
-    
+
     if (!alloc_str(ctx, str.str_val.len, &ret))
         return token_error(YY_ERROR_MEM);
 
@@ -3136,7 +3197,7 @@ static yy_token_t func_concat(yy_token_t str1, yy_token_t str2, yy_eval_ctx_t *c
 
     if (!str2.str_val.len)
         return str1;
-    
+
     yy_str_t ret = {0};
     uint32_t new_len = str1.str_val.len + str2.str_val.len;
 
@@ -3546,7 +3607,7 @@ static int str_cmp(const yy_str_t str1, const yy_str_t str2)
 
     if (str1.len < str2.len)
         return -1;
-    
+
     if (str1.len == str2.len)
         return 0;
 

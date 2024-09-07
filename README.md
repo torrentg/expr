@@ -169,7 +169,7 @@ boolFunc     = <see list below>
 | boolean  | `not`        | (boolExpr)                    | Negate                                   |
 | boolean  | `isinf`      | (numExpr)                     | Checks if a number is &plusmn; infinite  |
 | boolean  | `isnan`      | (numExpr)                     | Checks if a number is a NaN              |
-| boolean  | `iserror`    | (numExpr) <br/> (strExpr) <br> (timeExpr) | Checks if there is an error              |
+| boolean  | `iserror`    | (numExpr) <br/> (timeExpr) <br/> (boolExpr) <br/> (strExpr) | Checks if there is an error              |
 
 __Operators precedence__
 
