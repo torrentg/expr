@@ -83,6 +83,7 @@ const char * symbol_to_str(yy_symbol_e type)
         case YY_SYMBOL_ISERROR: return "ISERROR";
         case YY_SYMBOL_IFELSE: return "IFELSE";
         case YY_SYMBOL_STR: return "STR";
+        case YY_SYMBOL_VARIABLE_FUNC: return "VARIABLE_FUNC";
         case YY_SYMBOL_END: return "END";
         default: return "UNKNOW";
     }
@@ -961,6 +962,7 @@ void test_read_symbol_ok(void)
     check_next_ok("pow(2, 3+1)", YY_SYMBOL_POWER, &symbol);
     check_next_ok("not(${b})", YY_SYMBOL_NOT, &symbol);
     check_next_ok("str(now())", YY_SYMBOL_STR, &symbol);
+    check_next_ok("variable(str(now()))", YY_SYMBOL_VARIABLE_FUNC, &symbol);
     check_next_ok("< 5", YY_SYMBOL_LESS_OP, &symbol);
     check_next_ok("> 42", YY_SYMBOL_GREAT_OP, &symbol);
 }
@@ -1030,6 +1032,7 @@ void test_compile_number(void)
     check_compile_number_ok("clamp(7, 5, 7)");
     check_compile_number_ok("clamp(8, 5, 7)");
     check_compile_number_ok("ifelse(1 < 4 && false, 5, 7)");
+    check_compile_number_ok("1 + cos(variable(\"x\" + str($index)))");
 
     check_compile_number_ko(" ");
     check_compile_number_ko("not_a_var");

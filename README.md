@@ -47,8 +47,8 @@ __Grammar for numeric expressions__
 ```
 numExpr     = numTerm (numInfixOp numTerm)*
 numTerm     = number | 
-              variable | 
               numConst | 
+              varExpr | 
               numFunc | 
               '(' numExpr ')' | 
               numPrefixOp numTerm
@@ -99,7 +99,7 @@ __Grammar for time expressions__
 ```
 timeExpr    = timeTerm
 timeTerm    = datetime | 
-              variable | 
+              varExpr | 
               timeFunc
 timeFunc    = <see list below>
 ```
@@ -122,7 +122,7 @@ __Grammar for string expressions__
 ```
 strExpr     = strTerm ('+' strTerm)*
 strTerm     = string | 
-              variable | 
+              varExpr | 
               strFunc | 
               '(' strExpr ')'
 strFunc     = <see list below>
@@ -147,7 +147,7 @@ __Grammar for boolean expressions__
 ```
 boolExpr     = boolTerm (boolInfixOp boolTerm)*
 boolTerm     = boolean | 
-               variable | 
+               varExpr | 
                boolFunc | 
                '(' boolExpr ')' | 
                (numExpr | timeExpr | strExpr) <  (numExpr | timeExpr | strExpr) |
@@ -174,6 +174,22 @@ boolFunc     = <see list below>
 | boolean  | `isinf`      | (numExpr)                     | Checks if a number is &plusmn; infinite  |
 | boolean  | `isnan`      | (numExpr)                     | Checks if a number is a NaN              |
 | boolean  | `iserror`    | (numExpr) <br/> (timeExpr) <br/> (boolExpr) <br/> (strExpr) | Checks if there is an error              |
+
+__Grammar for variable expressions__
+
+```
+varExpr      = varTerm
+varTerm      = variable | 
+               varFunc
+varFunc      = <see list below>
+```
+
+| Return   | Function     | Params                        | Description                              |
+| -------- | ------------ | ----------------------------- | -------------------------------------    |
+| variable | `variable`   | (strExpr)                     | Creates a reference to the variable name |
+
+> Utility function to create references to variables on-the-fly.<br/>
+> `variable("x[" + str($index) + "]")` &rarr; `${x[1]}`
 
 __Operators precedence__
 

@@ -162,6 +162,7 @@ typedef enum yy_symbol_e
     YY_SYMBOL_UNESCAPE,             //!< unescape
     YY_SYMBOL_IFELSE,               //!< ifelse
     YY_SYMBOL_STR,                  //!< str
+    YY_SYMBOL_VARIABLE_FUNC,        //!< variable
     YY_SYMBOL_END,                  //!< No more symbols (maintain at the end of list)
 } yy_symbol_e;
 
@@ -276,54 +277,56 @@ static yy_token_t func_or(yy_token_t x, yy_token_t y);
 static yy_token_t func_max(yy_token_t x, yy_token_t y);
 static yy_token_t func_min(yy_token_t x, yy_token_t y);
 static yy_token_t func_ifelse(yy_token_t cond, yy_token_t x, yy_token_t y);
+static yy_token_t func_variable(yy_token_t str);
 
 // Identifiers list (alphabetical order)
 static const yy_identifier_t identifiers[] =
 {
-    { "E",         YY_SYMBOL_CONST_E   },
-    { "FALSE",     YY_SYMBOL_FALSE     },
-    { "False",     YY_SYMBOL_FALSE     },
-    { "Inf",       YY_SYMBOL_CONST_INF },
-    { "NaN",       YY_SYMBOL_CONST_NAN },
-    { "PI",        YY_SYMBOL_CONST_PI  },
-    { "TRUE",      YY_SYMBOL_TRUE      },
-    { "True",      YY_SYMBOL_TRUE      },
-    { "abs",       YY_SYMBOL_ABS       },
-    { "ceil",      YY_SYMBOL_CEIL      },
-    { "clamp",     YY_SYMBOL_CLAMP     },
-    { "cos",       YY_SYMBOL_COS       },
-    { "dateadd",   YY_SYMBOL_DATEADD   },
-    { "datepart",  YY_SYMBOL_DATEPART  },
-    { "dateset",   YY_SYMBOL_DATESET   },
-    { "datetrunc", YY_SYMBOL_DATETRUNC },
-    { "exp",       YY_SYMBOL_EXP       },
-    { "false",     YY_SYMBOL_FALSE     },
-    { "find",      YY_SYMBOL_FIND      },
-    { "floor",     YY_SYMBOL_FLOOR     },
-    { "ifelse",    YY_SYMBOL_IFELSE    },
-    { "iserror",   YY_SYMBOL_ISERROR   },
-    { "isinf",     YY_SYMBOL_ISINF     },
-    { "isnan",     YY_SYMBOL_ISNAN     },
-    { "length",    YY_SYMBOL_LENGTH    },
-    { "log",       YY_SYMBOL_LOG       },
-    { "lower",     YY_SYMBOL_LOWER     },
-    { "max",       YY_SYMBOL_MAX       },
-    { "min",       YY_SYMBOL_MIN       },
-    { "mod",       YY_SYMBOL_MODULO    },
-    { "not",       YY_SYMBOL_NOT       },
-    { "now",       YY_SYMBOL_NOW       },
-    { "pow",       YY_SYMBOL_POWER     },
-    { "replace",   YY_SYMBOL_REPLACE   },
-    { "sin",       YY_SYMBOL_SIN       },
-    { "sqrt",      YY_SYMBOL_SQRT      },
-    { "str",       YY_SYMBOL_STR       },
-    { "substr",    YY_SYMBOL_SUBSTR    },
-    { "tan",       YY_SYMBOL_TAN       },
-    { "trim",      YY_SYMBOL_TRIM      },
-    { "true",      YY_SYMBOL_TRUE      },
-    { "trunc",     YY_SYMBOL_TRUNC     },
-    { "unescape",  YY_SYMBOL_UNESCAPE  },
-    { "upper",     YY_SYMBOL_UPPER     },
+    { "E",         YY_SYMBOL_CONST_E       },
+    { "FALSE",     YY_SYMBOL_FALSE         },
+    { "False",     YY_SYMBOL_FALSE         },
+    { "Inf",       YY_SYMBOL_CONST_INF     },
+    { "NaN",       YY_SYMBOL_CONST_NAN     },
+    { "PI",        YY_SYMBOL_CONST_PI      },
+    { "TRUE",      YY_SYMBOL_TRUE          },
+    { "True",      YY_SYMBOL_TRUE          },
+    { "abs",       YY_SYMBOL_ABS           },
+    { "ceil",      YY_SYMBOL_CEIL          },
+    { "clamp",     YY_SYMBOL_CLAMP         },
+    { "cos",       YY_SYMBOL_COS           },
+    { "dateadd",   YY_SYMBOL_DATEADD       },
+    { "datepart",  YY_SYMBOL_DATEPART      },
+    { "dateset",   YY_SYMBOL_DATESET       },
+    { "datetrunc", YY_SYMBOL_DATETRUNC     },
+    { "exp",       YY_SYMBOL_EXP           },
+    { "false",     YY_SYMBOL_FALSE         },
+    { "find",      YY_SYMBOL_FIND          },
+    { "floor",     YY_SYMBOL_FLOOR         },
+    { "ifelse",    YY_SYMBOL_IFELSE        },
+    { "iserror",   YY_SYMBOL_ISERROR       },
+    { "isinf",     YY_SYMBOL_ISINF         },
+    { "isnan",     YY_SYMBOL_ISNAN         },
+    { "length",    YY_SYMBOL_LENGTH        },
+    { "log",       YY_SYMBOL_LOG           },
+    { "lower",     YY_SYMBOL_LOWER         },
+    { "max",       YY_SYMBOL_MAX           },
+    { "min",       YY_SYMBOL_MIN           },
+    { "mod",       YY_SYMBOL_MODULO        },
+    { "not",       YY_SYMBOL_NOT           },
+    { "now",       YY_SYMBOL_NOW           },
+    { "pow",       YY_SYMBOL_POWER         },
+    { "replace",   YY_SYMBOL_REPLACE       },
+    { "sin",       YY_SYMBOL_SIN           },
+    { "sqrt",      YY_SYMBOL_SQRT          },
+    { "str",       YY_SYMBOL_STR           },
+    { "substr",    YY_SYMBOL_SUBSTR        },
+    { "tan",       YY_SYMBOL_TAN           },
+    { "trim",      YY_SYMBOL_TRIM          },
+    { "true",      YY_SYMBOL_TRUE          },
+    { "trunc",     YY_SYMBOL_TRUNC         },
+    { "unescape",  YY_SYMBOL_UNESCAPE      },
+    { "upper",     YY_SYMBOL_UPPER         },
+    { "variable",  YY_SYMBOL_VARIABLE_FUNC },
 };
 
 #define NUM_IDENTIFIERS (sizeof(identifiers)/sizeof(identifiers[0]))
@@ -400,6 +403,7 @@ static const yy_token_t symbol_to_token[] =
     [YY_SYMBOL_MIN]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_min        , 2) },
     [YY_SYMBOL_MAX]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_max        , 2) },
     [YY_SYMBOL_IFELSE]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_ifelse     , 3) },
+    [YY_SYMBOL_VARIABLE_FUNC]   = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_variable   , 1) },
     [YY_SYMBOL_END]             = { .type = YY_TOKEN_NULL }
 };
 
@@ -1517,6 +1521,12 @@ static void parse_term_number(yy_parser_t *parser)
         case YY_SYMBOL_VARIABLE:
             consume(parser);
             break;
+        case YY_SYMBOL_VARIABLE_FUNC:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_string(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
         case YY_SYMBOL_ABS:
         case YY_SYMBOL_SQRT:
         case YY_SYMBOL_SIN:
@@ -1661,6 +1671,12 @@ static void parse_term_string(yy_parser_t *parser)
         case YY_SYMBOL_ESCAPED_STRING_VAL:
         case YY_SYMBOL_VARIABLE:
             consume(parser);
+            break;
+        case YY_SYMBOL_VARIABLE_FUNC:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_string(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
         case YY_SYMBOL_TRIM:
         case YY_SYMBOL_LOWER:
@@ -1829,6 +1845,12 @@ static void parse_term_bool(yy_parser_t *parser)
         case YY_SYMBOL_VARIABLE:
             consume(parser);
             return;
+        case YY_SYMBOL_VARIABLE_FUNC:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_string(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
         case YY_SYMBOL_NOT:
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
@@ -1992,6 +2014,12 @@ static void parse_term_datetime(yy_parser_t *parser)
             break;
         case YY_SYMBOL_VARIABLE:
             consume(parser);
+            break;
+        case YY_SYMBOL_VARIABLE_FUNC:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_string(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
         case YY_SYMBOL_NOW: 
             consume(parser);
@@ -3757,6 +3785,18 @@ static yy_token_t func_or(yy_token_t x, yy_token_t y)
         return token_error(YY_ERROR_VALUE);
 
     return token_bool(x.bool_val || y.bool_val);
+}
+
+// --- Functions returning a variable
+
+static yy_token_t func_variable(yy_token_t str)
+{
+    if (str.type != YY_TOKEN_STRING)
+        return token_error(YY_ERROR_VALUE);
+
+    str.type = YY_TOKEN_VARIABLE;
+
+    return str;
 }
 
 // --- Functions whose return type depends on parameters
