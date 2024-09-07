@@ -217,8 +217,13 @@ static const int days_in_month[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 
 // Forward declarations
 static bool is_temp_ptr(yy_eval_ctx_t *ctx, const char *ptr);
 static void free_str(yy_eval_ctx_t *ctx, yy_str_t *str);
+static yy_token_e parse_expr_generic(yy_parser_t *parser);
+static void parse_expr_datetime(yy_parser_t *parser);
 static void parse_expr_number(yy_parser_t *parser);
 static void parse_expr_string(yy_parser_t *parser);
+static void parse_expr_bool(yy_parser_t *parser);
+
+// Functions in expressions
 static yy_token_t func_now(yy_eval_ctx_t *ctx);
 static yy_token_t func_datepart(yy_token_t date, yy_token_t part);
 static yy_token_t func_dateadd(yy_token_t date, yy_token_t value, yy_token_t part);
@@ -1690,6 +1695,171 @@ EXPR_STRING_START:
     }
 }
 
+static void parse_expr_by_type(yy_parser_t *parser, yy_token_e type)
+{
+    if (parser->error != YY_OK)
+        return;
+
+    switch (type)
+    {
+        case YY_TOKEN_BOOL: parse_expr_bool(parser); break;
+        case YY_TOKEN_NUMBER: parse_expr_number(parser); break;
+        case YY_TOKEN_DATETIME: parse_expr_datetime(parser); break;
+        case YY_TOKEN_STRING: parse_expr_string(parser); break;
+        default: parser->error = YY_ERROR_SYNTAX; break;
+    }
+}
+
+/**
+ * Parse an expression until an unrecognized symbol is found.
+ * 
+ * We don't try to parse as YY_TOKEN_BOOL to avoid to enter in a loop.
+ * 
+ * @param[in] parser Parser to update.
+ * 
+ * @return YY_TOKEN_NUMBER - Parsed number expression,
+ *         YY_TOKEN_DATETIME - Parsed datetime expression,
+ *         YY_TOKEN_STRING - Parsed string expression,
+ *         YY_TOKEN_ERROR - Error parsing expression (see parser.error).
+ */
+static yy_token_e parse_expr_generic(yy_parser_t *parser)
+{
+    static const yy_token_e types[] = {YY_TOKEN_NUMBER, YY_TOKEN_DATETIME, YY_TOKEN_STRING};
+
+    if (parser->error != YY_OK)
+        return YY_TOKEN_ERROR;
+
+    yy_parser_t orig_parser = *parser;
+    yy_stack_t orig_stack = *parser->stack;
+
+    for (size_t i = 0; i < (sizeof(types)/sizeof(types[0])); i++)
+    {
+        //push_to_operators(parser, &symbol_to_token[YY_SYMBOL_PAREN_LEFT]);
+
+        parse_expr_by_type(parser, types[i]);
+
+        if (parser->error == YY_OK)
+        {
+            //push_to_operators(parser, &symbol_to_token[YY_SYMBOL_PAREN_RIGHT]);
+            return types[i];
+        }
+        else
+        {
+            // restore state
+            *parser = orig_parser;
+            *parser->stack = orig_stack;
+        }
+    }
+
+    parser->error = YY_ERROR_SYNTAX;
+    return YY_TOKEN_ERROR;
+}
+
+/**
+ * Parse a bool term.
+ * 
+ * @see Grammar described in docs.
+ * 
+ * @param[in] parser Parser to update.
+ */
+static void parse_term_bool(yy_parser_t *parser)
+{
+    assert(parser);
+
+    if (parser->error != YY_OK)
+        return;
+
+    switch (parser->curr_symbol.type)
+    {
+        case YY_SYMBOL_TRUE:
+        case YY_SYMBOL_FALSE:
+        case YY_SYMBOL_VARIABLE:
+            consume(parser);
+            return;
+        case YY_SYMBOL_NOT:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_bool(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            return;
+        case YY_SYMBOL_ISINF:
+        case YY_SYMBOL_ISNAN:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_number(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            return;
+        case YY_SYMBOL_ISERROR:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_generic(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            return;
+        case YY_SYMBOL_PAREN_LEFT:
+            consume(parser);
+            parse_expr_bool(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            return;
+        default:
+            break;
+    }
+
+    yy_token_e type = parse_expr_generic(parser);
+
+    if (type == YY_TOKEN_ERROR || parser->error)
+        return;
+
+    switch (parser->curr_symbol.type)
+    {
+        case YY_SYMBOL_LESS_OP:
+        case YY_SYMBOL_LESS_EQUALS_OP:
+        case YY_SYMBOL_GREAT_OP:
+        case YY_SYMBOL_GREAT_EQUALS_OP:
+        case YY_SYMBOL_EQUALS_OP:
+        case YY_SYMBOL_DISTINCT_OP:
+            consume(parser);
+            parse_expr_by_type(parser, type);
+            break;
+        default:
+            parser->error = YY_ERROR_SYNTAX;
+    }
+}
+
+/**
+ * Parse a boolean expression until an unrecognized symbol is found.
+ * 
+ * @param[in] Parser object.
+ */
+static void parse_expr_bool(yy_parser_t *parser)
+{ 
+    assert(parser);
+
+EXPR_BOOL_START:
+
+    if (parser->error != YY_OK)
+        return;
+
+    parse_term_bool(parser);
+
+    if (parser->error != YY_OK)
+        return;
+
+    switch (parser->curr_symbol.type)
+    {
+        case YY_SYMBOL_AND_OP: 
+        case YY_SYMBOL_OR_OP: 
+        case YY_SYMBOL_EQUALS_OP: 
+        case YY_SYMBOL_DISTINCT_OP: 
+            consume(parser);
+            goto EXPR_BOOL_START;
+        case YY_SYMBOL_END: 
+            consume(parser);
+            break;
+        default:
+            break;
+    }
+}
+
 /**
  * Parse a datepart identifier.
  * 
@@ -1782,7 +1952,7 @@ static void parse_term_datetime(yy_parser_t *parser)
         case YY_SYMBOL_DATESET: 
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
-            parse_term_datetime(parser);
+            parse_expr_datetime(parser);
             expect(parser, YY_SYMBOL_COMMA);
             parse_expr_number(parser);
             expect(parser, YY_SYMBOL_COMMA);
@@ -1792,7 +1962,7 @@ static void parse_term_datetime(yy_parser_t *parser)
         case YY_SYMBOL_DATETRUNC: 
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
-            parse_term_datetime(parser);
+            parse_expr_datetime(parser);
             expect(parser, YY_SYMBOL_COMMA);
             parse_datepart(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
@@ -1801,24 +1971,35 @@ static void parse_term_datetime(yy_parser_t *parser)
         case YY_SYMBOL_MAX: 
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
-            parse_term_datetime(parser);
+            parse_expr_datetime(parser);
             expect(parser, YY_SYMBOL_COMMA);
-            parse_term_datetime(parser);
+            parse_expr_datetime(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
         case YY_SYMBOL_CLAMP:
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
-            parse_term_datetime(parser);
+            parse_expr_datetime(parser);
             expect(parser, YY_SYMBOL_COMMA);
-            parse_term_datetime(parser);
+            parse_expr_datetime(parser);
             expect(parser, YY_SYMBOL_COMMA);
-            parse_term_datetime(parser);
+            parse_expr_datetime(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
         default:
             parser->error = YY_ERROR_SYNTAX;
     }
+}
+
+/**
+ * Parse a datetime expression until an unrecognized symbol is found.
+ * 
+ * @param[in] Parser object.
+ */
+INLINE
+static void parse_expr_datetime(yy_parser_t *parser)
+{
+    parse_term_datetime(parser);
 }
 
 /**
@@ -1858,7 +2039,7 @@ yy_error_e yy_compile_datetime(const char *begin, const char *end, yy_stack_t *s
     yy_parser_t parser;
 
     init_parser(&parser, begin, end, stack);
-    parse_term_datetime(&parser);
+    parse_expr_datetime(&parser);
 
     if (parser.error == YY_OK && parser.curr_symbol.type != YY_SYMBOL_END)
         parser.error = YY_ERROR_SYNTAX;
@@ -1883,6 +2064,30 @@ yy_error_e yy_compile_string(const char *begin, const char *end, yy_stack_t *sta
 
     init_parser(&parser, begin, end, stack);
     parse_expr_string(&parser);
+
+    if (parser.error == YY_OK && parser.curr_symbol.type != YY_SYMBOL_END)
+        parser.error = YY_ERROR_SYNTAX;
+
+    if (err && parser.error != YY_OK)
+        *err = parser.curr;
+
+    return parser.error;
+}
+
+/**
+ * Implements a recursive descent parser for string expressions.
+ * 
+ * See grammar in the project doc.
+ */
+yy_error_e yy_compile_bool(const char *begin, const char *end, yy_stack_t *stack, const char **err)
+{
+    if (!begin || !end || begin > end || !stack || !stack->data)
+        return YY_ERROR;
+
+    yy_parser_t parser;
+
+    init_parser(&parser, begin, end, stack);
+    parse_expr_bool(&parser);
 
     if (parser.error == YY_OK && parser.curr_symbol.type != YY_SYMBOL_END)
         parser.error = YY_ERROR_SYNTAX;
@@ -2138,59 +2343,59 @@ yy_token_t yy_parse_string(const char *begin, const char *end)
 yy_token_t yy_parse_bool(const char *begin, const char *end)
 {
     if (!begin || !end || begin >= end)
-        goto BOOLEAN_ERROR;
+        goto BOOL_ERROR;
 
     const char *ptr = begin;
 
     switch (*ptr) {
         case 'f':
-        case 'F': goto BOOLEAN_FALSE;
+        case 'F': goto BOOL_FALSE;
         case 't':
-        case 'T': goto BOOLEAN_TRUE;
-        default: goto BOOLEAN_ERROR;
+        case 'T': goto BOOL_TRUE;
+        default: goto BOOL_ERROR;
     }
 
-BOOLEAN_FALSE:
+BOOL_FALSE:
 
     if (end - ptr != 5)
-        goto BOOLEAN_ERROR;
+        goto BOOL_ERROR;
 
     switch (*++ptr) {
         case 'A':
             if (ptr[-1] == 'F' && ptr[1] == 'L' && ptr[2] == 'S' && ptr[3] == 'E')
                 return token_bool(false);
             else
-                goto BOOLEAN_ERROR;
+                goto BOOL_ERROR;
         case 'a':
             if (ptr[1] == 'l' && ptr[2] == 's' && ptr[3] == 'e')
                 return token_bool(false);
             else
-                goto BOOLEAN_ERROR;
+                goto BOOL_ERROR;
         default:
-            goto BOOLEAN_ERROR;
+            goto BOOL_ERROR;
     }
 
-BOOLEAN_TRUE:
+BOOL_TRUE:
 
     if (end - ptr != 4)
-        goto BOOLEAN_ERROR;
+        goto BOOL_ERROR;
 
     switch (*++ptr) {
         case 'R':
             if (ptr[-1] == 'T' && ptr[1] == 'U' && ptr[2] == 'E')
                 return token_bool(true);
             else
-                goto BOOLEAN_ERROR;
+                goto BOOL_ERROR;
         case 'r':
             if (ptr[1] == 'u' && ptr[2] == 'e')
                 return token_bool(true);
             else
-                goto BOOLEAN_ERROR;
+                goto BOOL_ERROR;
         default: 
-            goto BOOLEAN_ERROR;
+            goto BOOL_ERROR;
     }
 
-BOOLEAN_ERROR:
+BOOL_ERROR:
 
     return token_error(YY_ERROR_VALUE);
 }
@@ -3299,52 +3504,150 @@ static yy_token_t func_isnan(yy_token_t x)
     return token_bool(isnan(x.number_val));
 }
 
-static yy_token_t func_lt(yy_token_t x, yy_token_t y) {
-    UNUSED(x);
-    UNUSED(y);
-    return (yy_token_t){0};
+static int str_cmp(const yy_str_t str1, const yy_str_t str2)
+{
+    int ret = strncmp(str1.ptr, str2.ptr, MIN(str1.len, str2.len));
+
+    if (ret != 0)
+        return ret;
+
+    if (str1.len < str2.len)
+        return -1;
+    
+    if (str1.len == str2.len)
+        return 0;
+
+    return 1;
 }
 
-static yy_token_t func_le(yy_token_t x, yy_token_t y) {
-    UNUSED(x);
-    UNUSED(y);
-    return (yy_token_t){0};
+static yy_token_t func_lt(yy_token_t x, yy_token_t y)
+{
+    if (x.type != y.type)
+        return token_error(YY_ERROR_VALUE);
+
+    if (x.type == YY_TOKEN_NUMBER)
+        return token_bool(x.number_val < y.number_val);
+
+    if (x.type == YY_TOKEN_DATETIME)
+        return token_bool(x.datetime_val < y.datetime_val);
+
+    if (x.type == YY_TOKEN_STRING && x.str_val.ptr && y.str_val.ptr)
+        return token_bool(str_cmp(x.str_val, y.str_val) < 0);
+
+    return token_error(YY_ERROR_VALUE);
 }
 
-static yy_token_t func_gt(yy_token_t x, yy_token_t y) {
-    UNUSED(x);
-    UNUSED(y);
-    return (yy_token_t){0};
+static yy_token_t func_le(yy_token_t x, yy_token_t y)
+{
+    if (x.type != y.type)
+        return token_error(YY_ERROR_VALUE);
+
+    if (x.type == YY_TOKEN_NUMBER)
+        return token_bool(x.number_val <= y.number_val);
+
+    if (x.type == YY_TOKEN_DATETIME)
+        return token_bool(x.datetime_val <= y.datetime_val);
+
+    if (x.type == YY_TOKEN_STRING && x.str_val.ptr && y.str_val.ptr)
+        return token_bool(str_cmp(x.str_val, y.str_val) <= 0);
+
+    return token_error(YY_ERROR_VALUE);
 }
 
-static yy_token_t func_ge(yy_token_t x, yy_token_t y) {
-    UNUSED(x);
-    UNUSED(y);
-    return (yy_token_t){0};
+static yy_token_t func_gt(yy_token_t x, yy_token_t y)
+{
+    if (x.type != y.type)
+        return token_error(YY_ERROR_VALUE);
+
+    if (x.type == YY_TOKEN_NUMBER)
+        return token_bool(x.number_val > y.number_val);
+
+    if (x.type == YY_TOKEN_DATETIME)
+        return token_bool(x.datetime_val > y.datetime_val);
+
+    if (x.type == YY_TOKEN_STRING && x.str_val.ptr && y.str_val.ptr)
+        return token_bool(str_cmp(x.str_val, y.str_val) > 0);
+
+    return token_error(YY_ERROR_VALUE);
 }
 
-static yy_token_t func_eq(yy_token_t x, yy_token_t y) {
-    UNUSED(x);
-    UNUSED(y);
-    return (yy_token_t){0};
+static yy_token_t func_ge(yy_token_t x, yy_token_t y)
+{
+    if (x.type != y.type)
+        return token_error(YY_ERROR_VALUE);
+
+    if (x.type == YY_TOKEN_NUMBER)
+        return token_bool(x.number_val >= y.number_val);
+
+    if (x.type == YY_TOKEN_DATETIME)
+        return token_bool(x.datetime_val >= y.datetime_val);
+
+    if (x.type == YY_TOKEN_STRING && x.str_val.ptr && y.str_val.ptr)
+        return token_bool(str_cmp(x.str_val, y.str_val) >= 0);
+
+    return token_error(YY_ERROR_VALUE);
 }
 
-static yy_token_t func_ne(yy_token_t x, yy_token_t y) {
-    UNUSED(x);
-    UNUSED(y);
-    return (yy_token_t){0};
+static yy_token_t func_eq(yy_token_t x, yy_token_t y)
+{
+    if (x.type != y.type)
+        return token_error(YY_ERROR_VALUE);
+
+    if (x.type == YY_TOKEN_NUMBER)
+        return token_bool(x.number_val == y.number_val);
+
+    if (x.type == YY_TOKEN_DATETIME)
+        return token_bool(x.datetime_val == y.datetime_val);
+
+    if (x.type == YY_TOKEN_STRING && x.str_val.ptr && y.str_val.ptr)
+        return token_bool(str_cmp(x.str_val, y.str_val) == 0);
+
+    if (x.type == YY_TOKEN_BOOL)
+        return token_bool(x.bool_val == y.bool_val);
+
+    return token_error(YY_ERROR_VALUE);
 }
 
-static yy_token_t func_and(yy_token_t x, yy_token_t y) {
-    UNUSED(x);
-    UNUSED(y);
-    return (yy_token_t){0};
+static yy_token_t func_ne(yy_token_t x, yy_token_t y)
+{
+    if (x.type != y.type)
+        return token_error(YY_ERROR_VALUE);
+
+    if (x.type == YY_TOKEN_NUMBER)
+        return token_bool(x.number_val != y.number_val);
+
+    if (x.type == YY_TOKEN_DATETIME)
+        return token_bool(x.datetime_val != y.datetime_val);
+
+    if (x.type == YY_TOKEN_STRING && x.str_val.ptr && y.str_val.ptr)
+        return token_bool(str_cmp(x.str_val, y.str_val) != 0);
+
+    if (x.type == YY_TOKEN_BOOL)
+        return token_bool(x.bool_val != y.bool_val);
+
+    return token_error(YY_ERROR_VALUE);
 }
 
-static yy_token_t func_or(yy_token_t x, yy_token_t y) {
-    UNUSED(x);
-    UNUSED(y);
-    return (yy_token_t){0};
+static yy_token_t func_and(yy_token_t x, yy_token_t y)
+{
+    if (x.type != YY_TOKEN_BOOL)
+        return token_error(YY_ERROR_VALUE);
+
+    if (y.type != YY_TOKEN_BOOL)
+        return token_error(YY_ERROR_VALUE);
+
+    return token_bool(x.bool_val && y.bool_val);
+}
+
+static yy_token_t func_or(yy_token_t x, yy_token_t y)
+{
+    if (x.type != YY_TOKEN_BOOL)
+        return token_error(YY_ERROR_VALUE);
+
+    if (y.type != YY_TOKEN_BOOL)
+        return token_error(YY_ERROR_VALUE);
+
+    return token_bool(x.bool_val || y.bool_val);
 }
 
 // --- Functions whose return type depends on parameters
@@ -3368,11 +3671,7 @@ static yy_token_t func_min(yy_token_t x, yy_token_t y)
 
     if (x.type == YY_TOKEN_STRING)
     {
-        size_t len = MIN(x.str_val.len, y.str_val.len);
-        if (strncmp(x.str_val.ptr, y.str_val.ptr, len) < 0)
-            return x;
-        else
-            return y;
+        return (str_cmp(x.str_val, y.str_val) < 0 ? x : y);
     }
 
     return token_error(YY_ERROR_VALUE);
@@ -3397,11 +3696,7 @@ static yy_token_t func_max(yy_token_t x, yy_token_t y)
 
     if (x.type == YY_TOKEN_STRING)
     {
-        size_t len = MIN(x.str_val.len, y.str_val.len);
-        if (strncmp(x.str_val.ptr, y.str_val.ptr, len) < 0)
-            return y;
-        else
-            return x;
+        return (str_cmp(x.str_val, y.str_val) < 0 ? y : x);
     }
 
     return token_error(YY_ERROR_VALUE);

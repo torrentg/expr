@@ -42,7 +42,9 @@ __Grammar for numeric expressions__
 
 ```
 numExpr     = numTerm (numInfixOp numTerm)*
-numTerm     = number | variable | numConst | 
+numTerm     = number | 
+              variable | 
+              numConst | 
               numFunc | 
               '(' numExpr ')' | 
               numPrefixOp numTerm
@@ -76,7 +78,7 @@ numConst    = <see list below>
 | number   | `clamp`      | (numExpr, numExpr, numExpr)   | Coerce a value to be in a fixed range    |
 | number   | `length`     | (strExpr)                     | Length of a string                       |
 | number   | `find`       | (strExpr, strExpr, numExpr)   | Locate a text string into another text   |
-| number   | `datepart`   | (timeTerm, timePart)          | Returns a part from a date               |
+| number   | `datepart`   | (timeExpr, timePart)          | Returns a part from a date               |
 | number   | `min`        | (numExpr, numExpr)            | Returns the smaller of two given values  |
 | number   | `max`        | (numExpr, numExpr)            | Returns the larger of two given values   |
 
@@ -91,7 +93,10 @@ numConst    = <see list below>
 __Grammar for time expressions__
 
 ```
-timeTerm    = datetime | variable | timeFunc
+timeExpr    = timeTerm
+timeTerm    = datetime | 
+              variable | 
+              timeFunc
 timeFunc    = <see list below>
 ```
 
@@ -100,18 +105,21 @@ timeFunc    = <see list below>
 | Return   | Function     | Params                        | Description                              |
 | -------- | ------------ | ----------------------------- | -------------------------------------    |
 | datetime | `now`        | (\<none\>)                    | Current UTC time                         |
-| datetime | `dateadd`    | (timeTerm, numExpr, timePart) | Increments/decrements a date part        |
-| datetime | `dateset`    | (timeTerm, numExpr, timePart) | Modifies a date part                     |
-| datetime | `datetrunc`  | (timeTerm, timePart)          | Returns a date truncated to datepart     |
-| datetime | `clamp`      | (timeTerm, timeTerm, timeTerm)| Coerce a datetime to be in a fixed range |
-| datetime | `min`        | (timeTerm, timeTerm)          | Returns the smaller of two given values  |
-| datetime | `max`        | (timeTerm, timeTerm)          | Returns the larger of two given values   |
+| datetime | `dateadd`    | (timeExpr, numExpr, timePart) | Increments/decrements a date part        |
+| datetime | `dateset`    | (timeExpr, numExpr, timePart) | Modifies a date part                     |
+| datetime | `datetrunc`  | (timeExpr, timePart)          | Returns a date truncated to datepart     |
+| datetime | `clamp`      | (timeExpr, timeExpr, timeExpr)| Coerce a datetime to be in a fixed range |
+| datetime | `min`        | (timeExpr, timeExpr)          | Returns the smaller of two given values  |
+| datetime | `max`        | (timeExpr, timeExpr)          | Returns the larger of two given values   |
 
 __Grammar for string expressions__
 
 ```
 strExpr     = strTerm ('+' strTerm)*
-strTerm     = string | variable | strFunc | '(' strExpr ')'
+strTerm     = string | 
+              variable | 
+              strFunc | 
+              '(' strExpr ')'
 strFunc     = <see list below>
 ```
 
@@ -135,13 +143,13 @@ boolTerm     = boolean |
                variable | 
                boolFunc | 
                '(' boolExpr ')' | 
-               (numExpr | timeTerm | strExpr) <  (numExpr | timeTerm | strExpr) |
-               (numExpr | timeTerm | strExpr) <= (numExpr | timeTerm | strExpr) |
-               (numExpr | timeTerm | strExpr) >  (numExpr | timeTerm | strExpr) |
-               (numExpr | timeTerm | strExpr) >= (numExpr | timeTerm | strExpr) |
-               (numExpr | timeTerm | strExpr) == (numExpr | timeTerm | strExpr) |
-               (numExpr | timeTerm | strExpr) != (numExpr | timeTerm | strExpr) |
-boolInfixOp  = '&&' | '||'
+               (numExpr | timeExpr | strExpr) <  (numExpr | timeExpr | strExpr) |
+               (numExpr | timeExpr | strExpr) <= (numExpr | timeExpr | strExpr) |
+               (numExpr | timeExpr | strExpr) >  (numExpr | timeExpr | strExpr) |
+               (numExpr | timeExpr | strExpr) >= (numExpr | timeExpr | strExpr) |
+               (numExpr | timeExpr | strExpr) == (numExpr | timeExpr | strExpr) |
+               (numExpr | timeExpr | strExpr) != (numExpr | timeExpr | strExpr)
+boolInfixOp  = '&&' | '||' | '==' | '!='
 boolFunc     = <see list below>
 ```
 
@@ -149,16 +157,16 @@ boolFunc     = <see list below>
 | -------- | ------------ | ----------------------------- | -------------------------------------    |
 | boolean  | `&&`         | (boolExpr, boolExpr)          | And                                      |
 | boolean  | `\|\|`       | (boolExpr, boolExpr)          | Or                                       |
-| boolean  | `<`          | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr)   | Less-than             |
-| boolean  | `<=`         | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr)   | Less-than-or-equal    |
-| boolean  | `>`          | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr)   | Greater-than          |
-| boolean  | `>=`         | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr)   | Greater-than-or-equal |
-| boolean  | `==`         | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr) <br/> (boolExpr, boolExpr)  | Equal-to           |
-| boolean  | `!=`         | (numExpr, numExpr) <br/> (timeTerm, timeTerm) <br/> (strExpr, strExpr) <br/> (boolExpr, boolExpr)  | Not-equal-to       |
+| boolean  | `<`          | (numExpr, numExpr) <br/> (timeExpr, timeExpr) <br/> (strExpr, strExpr)   | Less-than             |
+| boolean  | `<=`         | (numExpr, numExpr) <br/> (timeExpr, timeExpr) <br/> (strExpr, strExpr)   | Less-than-or-equal    |
+| boolean  | `>`          | (numExpr, numExpr) <br/> (timeExpr, timeExpr) <br/> (strExpr, strExpr)   | Greater-than          |
+| boolean  | `>=`         | (numExpr, numExpr) <br/> (timeExpr, timeExpr) <br/> (strExpr, strExpr)   | Greater-than-or-equal |
+| boolean  | `==`         | (numExpr, numExpr) <br/> (timeExpr, timeExpr) <br/> (strExpr, strExpr) <br/> (boolExpr, boolExpr)  | Equal-to           |
+| boolean  | `!=`         | (numExpr, numExpr) <br/> (timeExpr, timeExpr) <br/> (strExpr, strExpr) <br/> (boolExpr, boolExpr)  | Not-equal-to       |
 | boolean  | `not`        | (boolExpr)                    | Negate                                   |
 | boolean  | `isinf`      | (numExpr)                     | Checks if a number is &plusmn; infinite  |
 | boolean  | `isnan`      | (numExpr)                     | Checks if a number is a NaN              |
-| boolean  | `iserror`    | (numExpr) <br/> (strExpr) <br> (timeTerm) | Checks if there is an error              |
+| boolean  | `iserror`    | (numExpr) <br/> (strExpr) <br> (timeExpr) | Checks if there is an error              |
 
 __Operators precedence__
 

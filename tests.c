@@ -437,6 +437,32 @@ void check_compile_string_ko(const char *str)
     TEST_MSG("Case='%s', error=failed", str);
 }
 
+void check_compile_bool_ok(const char *str)
+{
+    yy_token_t data[256] = {0};
+    yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
+
+    yy_error_e rc = yy_compile_bool(str, str + strlen(str), &stack, NULL);
+
+    TEST_CHECK(rc == YY_OK);
+    TEST_MSG("Case='%s', error=unexpected-rc, rc=%d", str, rc);
+
+    printf("%s --> ", str);
+    print_stack(&stack);
+    printf("\n");
+}
+
+void check_compile_bool_ko(const char *str)
+{
+    yy_token_t data[64] = {0};
+    yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
+
+    yy_error_e rc = yy_compile_bool(str, str + strlen(str), &stack, NULL);
+
+    TEST_CHECK(rc != YY_OK);
+    TEST_MSG("Case='%s', error=failed", str);
+}
+
 // ==============
 
 void check_dateadd(const char *str_date, int val, const char *str_part, const char *str_expected)
@@ -1066,6 +1092,21 @@ void test_compile_string(void)
     check_compile_string_ok("trim(replace(\" Hi BOB \", upper(\"Bob\"), lower(\"John\"))) + \"!\"");
 }
 
+void test_compile_bool(void)
+{
+    check_compile_bool_ok("true");
+    check_compile_bool_ok("true || false");
+    check_compile_bool_ok("true && false");
+    check_compile_bool_ok("not(true)");
+    check_compile_bool_ok("not(1 > 2)");
+    check_compile_bool_ok("1 < 2 || not(1 < 2)");
+    check_compile_bool_ok("1 < 2 || not(1 < 2) && 1 != 1");
+    check_compile_bool_ok("1 < 2 && 1 > 2");
+    check_compile_bool_ok("length(\"xxx\") < 5 || isinf(cos(PI))");
+    check_compile_bool_ok("length(\"xxx\") > 5 == false");
+    check_compile_bool_ok("exp(1) != E || length(\"xxx\") > 0");
+}
+
 void test_sizeof(void)
 {
     TEST_CHECK(sizeof(uint64_t) == 8);
@@ -1491,6 +1532,7 @@ TEST_LIST = {
     { "yy_compile_number",            test_compile_number },
     { "yy_compile_datetime",          test_compile_datetime },
     { "yy_compile_string",            test_compile_string },
+    { "yy_compile_bool",              test_compile_bool },
     { "funcs_number",                 test_funcs_number },
     { "funcs_datetime",               test_funcs_datetime },
     { "funcs_bool",                   test_funcs_bool },
