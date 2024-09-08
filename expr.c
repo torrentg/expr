@@ -2998,7 +2998,7 @@ static char * datetime_to_str(uint64_t millis_utc, char *ret)
 
 INLINE
 static bool is_temp_ptr(yy_eval_ctx_t *ctx, const char *ptr) {
-    return (!ptr && (char *) &ctx->stack->data[ctx->stack->len] <= ptr && ptr < (char *) &ctx->stack->data[ctx->stack->reserved]);
+    return (ptr && (char *) &ctx->stack->data[ctx->stack->len] <= ptr && ptr < (char *) &ctx->stack->data[ctx->stack->reserved]);
 }
 
 INLINE
@@ -3034,7 +3034,7 @@ static uint32_t temp_avail_bytes(yy_eval_ctx_t *ctx) {
  */
 static void free_str(yy_eval_ctx_t *ctx, yy_str_t *str)
 {
-    if (!ctx)
+    if (!ctx) // some tests call func_xxx() with no context
         return;
 
     assert(ctx->stack && ctx->tmp_str);

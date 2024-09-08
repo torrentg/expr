@@ -1052,6 +1052,27 @@ void test_skip_spaces(void)
     check_skip_spaces("    ", 2, 2);
 }
 
+void test_datepart(void)
+{
+    TEST_CHECK(get_datepart(&((yy_str_t){"year", 4})) == 0);
+    TEST_CHECK(get_datepart(&((yy_str_t){"month", 5})) == 1);
+    TEST_CHECK(get_datepart(&((yy_str_t){"day", 3})) == 2);
+    TEST_CHECK(get_datepart(&((yy_str_t){"hour", 4})) == 3);
+    TEST_CHECK(get_datepart(&((yy_str_t){"minute", 6})) == 4);
+    TEST_CHECK(get_datepart(&((yy_str_t){"second", 6})) == 5);
+    TEST_CHECK(get_datepart(&((yy_str_t){"millis", 6})) == 6);
+
+    TEST_CHECK(get_datepart(&((yy_str_t){"", 0})) == -1);
+    TEST_CHECK(get_datepart(&((yy_str_t){"xxx", 3})) == -1);
+    TEST_CHECK(get_datepart(&((yy_str_t){"years", 5})) == -1);
+    TEST_CHECK(get_datepart(&((yy_str_t){"months", 6})) == -1);
+    TEST_CHECK(get_datepart(&((yy_str_t){"days", 4})) == -1);
+    TEST_CHECK(get_datepart(&((yy_str_t){"hours", 5})) == -1);
+    TEST_CHECK(get_datepart(&((yy_str_t){"minutes", 7})) == -1);
+    TEST_CHECK(get_datepart(&((yy_str_t){"seconds", 7})) == -1);
+    TEST_CHECK(get_datepart(&((yy_str_t){"ms", 2})) == -1);
+}
+
 void test_eval_number_ok(void)
 {
     check_eval_number_ok("1+2", 3);
@@ -1186,305 +1207,440 @@ void test_sizeof(void)
     TEST_CHECK(sizeof(yy_symbol_t) == 32);
 }
 
-void test_funcs_number(void)
+void test_func_length(void)
 {
-    const char *date_str = "2024-08-26T14:16:53.493Z";
     yy_token_t token = {0};
-    yy_token_t date = {0};
 
-    // length()
     token = func_length(token_string("xxx", 3));
     TEST_CHECK(token.type == YY_TOKEN_NUMBER);
     TEST_CHECK(token.number_val == 3);
+
     token = func_length(token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // find()
-    token = func_find(token_string("xxx", 3), token_string("abc_xxx_yz", 10), token_number(0));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 4);
-    token = func_find(token_bool(true), token_string("abc_xxx_yz", 10), token_number(0));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-    token = func_find(token_string("xxx", 3), token_bool(true), token_number(0));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-    token = func_find(token_string("xxx", 3), token_string("abc_xxx_yz", 10), token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // datepart()
-    date = yy_parse_datetime(date_str, date_str + strlen(date_str));
-    TEST_CHECK(date.type == YY_TOKEN_DATETIME);
-    token = func_datepart(date, token_number(0)); // year
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 2024);
-    token = func_datepart(date, token_number(1)); // month
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 8);
-    token = func_datepart(date, token_number(2)); // day
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 26);
-    token = func_datepart(date, token_number(3)); // hour
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 14);
-    token = func_datepart(date, token_number(4)); // minute
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 16);
-    token = func_datepart(date, token_number(5)); // second
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 53);
-    token = func_datepart(date, token_number(6)); // millis
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 493);
-    token = func_datepart(date, token_number(99)); // unknow part
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-    token = func_datepart(date, token_bool(false)); // unexpected type
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-    token = func_datepart(token_number(1), token_number(1)); // invalid date
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // abs()
-    token = func_abs(token_number(10));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 10);
-    token = func_abs(token_number(-10));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 10);
-    token = func_abs(token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // ceil()
-    token = func_ceil(token_number(2.3));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 3);
-    token = func_ceil(token_number(3));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 3);
-    token = func_ceil(token_number(-2.3));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == -2);
-    token = func_ceil(token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // floor()
-    token = func_floor(token_number(2.3));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 2);
-    token = func_floor(token_number(3));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 3);
-    token = func_floor(token_number(-2.3));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == -3);
-    token = func_floor(token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // trunc()
-    token = func_trunc(token_number(2.3));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 2);
-    token = func_trunc(token_number(3));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 3);
-    token = func_trunc(token_number(-2.3));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == -2);
-    token = func_trunc(token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // sin()
-    token = func_sin(token_number(0));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(token.number_val) < EPSILON);
-    token = func_sin(token_number(M_PI_2));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(1.0 - token.number_val) < EPSILON);
-    token = func_sin(token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // cos()
-    token = func_cos(token_number(0));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(1.0 - token.number_val) < EPSILON);
-    token = func_cos(token_number(M_PI_2));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(token.number_val) < EPSILON);
-    token = func_cos(token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // tan()
-    token = func_tan(token_number(0));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(token.number_val) < EPSILON);
-    token = func_tan(token_number(M_PI_4));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(1.0 - token.number_val) < EPSILON);
-    token = func_tan(token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // exp()
-    token = func_exp(token_number(1));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(M_E - token.number_val) < EPSILON);
-    token = func_exp(token_number(0));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(1.0 - token.number_val) < EPSILON);
-    token = func_exp(token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // log()
-    token = func_log(token_number(M_E));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(1.0 - token.number_val) < EPSILON);
-    token = func_log(token_number(M_E*M_E));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(2.0 - token.number_val) < EPSILON);
-    token = func_log(token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // sqrt()
-    token = func_sqrt(token_number(0));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(token.number_val) < EPSILON);
-    token = func_sqrt(token_number(100));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(10.0 - token.number_val) < EPSILON);
-    token = func_sqrt(token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // pow()
-    token = func_pow(token_number(2), token_number(3));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(8.0 - token.number_val) < EPSILON);
-    token = func_pow(token_number(1), token_number(6));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(1.0 - token.number_val) < EPSILON);
-    token = func_pow(token_number(1), token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-    token = func_pow(token_bool(true), token_number(1));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // minus()
-    token = func_minus(token_number(1));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(-1.0 - token.number_val) < EPSILON);
-    token = func_minus(token_number(-1));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(1.0 - token.number_val) < EPSILON);
-    token = func_minus(token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // ident()
-    token = func_ident(token_number(1));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 1.0);
-    token = func_ident(token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // addition()
-    token = func_addition(token_number(2), token_number(3));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 5.0);
-    token = func_addition(token_bool(true), token_number(3));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-    token = func_addition(token_number(2), token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // subtraction()
-    token = func_subtraction(token_number(2), token_number(3));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == -1.0);
-    token = func_subtraction(token_bool(true), token_number(3));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-    token = func_subtraction(token_number(2), token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // mult()
-    token = func_mult(token_number(2), token_number(3));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 6.0);
-    token = func_mult(token_bool(true), token_number(3));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-    token = func_mult(token_number(2), token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // div()
-    token = func_div(token_number(2), token_number(3));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(fabs(2.0/3.0 - token.number_val) < EPSILON);
-    token = func_div(token_bool(true), token_number(3));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-    token = func_div(token_number(2), token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // mod()
-    token = func_mod(token_number(7), token_number(5));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 2.0);
-    token = func_mod(token_bool(true), token_number(3));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-    token = func_mod(token_number(2), token_bool(true));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // min()
-    token = func_min(token_number(7), token_number(5));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 5.0);
-    token = func_min(token_number(5), token_number(7));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 5.0);
-    token = func_min(token_number(5), token_number(5));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 5.0);
-    token = func_min(token_bool(true), token_number(3));
-    TEST_CHECK(token.type == YY_TOKEN_ERROR);
-
-    // max()
-    token = func_max(token_number(7), token_number(5));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 7.0);
-    token = func_max(token_number(5), token_number(7));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 7.0);
-    token = func_max(token_number(5), token_number(5));
-    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
-    TEST_CHECK(token.number_val == 5.0);
-    token = func_max(token_bool(true), token_number(3));
     TEST_CHECK(token.type == YY_TOKEN_ERROR);
 }
 
-void test_funcs_datetime(void)
+void test_func_find(void)
+{
+    yy_token_t token = {0};
+
+    token = func_find(token_string("xxx", 3), token_string("abc_xxx_yz", 10), token_number(0));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 4);
+
+    token = func_find(token_bool(true), token_string("abc_xxx_yz", 10), token_number(0));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+
+    token = func_find(token_string("xxx", 3), token_bool(true), token_number(0));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+
+    token = func_find(token_string("xxx", 3), token_string("abc_xxx_yz", 10), token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_datepart(void)
+{
+    const char *date_str = "2024-08-26T14:16:53.493Z";
+    yy_token_t date = {0};
+    yy_token_t token = {0};
+
+    date = yy_parse_datetime(date_str, date_str + strlen(date_str));
+    TEST_CHECK(date.type == YY_TOKEN_DATETIME);
+
+    token = func_datepart(date, token_number(0)); // year
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 2024);
+
+    token = func_datepart(date, token_number(1)); // month
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 8);
+
+    token = func_datepart(date, token_number(2)); // day
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 26);
+
+    token = func_datepart(date, token_number(3)); // hour
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 14);
+
+    token = func_datepart(date, token_number(4)); // minute
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 16);
+
+    token = func_datepart(date, token_number(5)); // second
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 53);
+
+    token = func_datepart(date, token_number(6)); // millis
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 493);
+
+    token = func_datepart(date, token_number(99)); // unknow part
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+
+    token = func_datepart(date, token_bool(false)); // unexpected type
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+
+    token = func_datepart(token_number(1), token_number(1)); // invalid date
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_abs(void)
+{
+    yy_token_t token = {0};
+
+    token = func_abs(token_number(10));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 10);
+
+    token = func_abs(token_number(-10));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 10);
+
+    token = func_abs(token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_ceil(void)
+{
+    yy_token_t token = {0};
+
+    token = func_ceil(token_number(2.3));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 3);
+
+    token = func_ceil(token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 3);
+
+    token = func_ceil(token_number(-2.3));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == -2);
+
+    token = func_ceil(token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_floor(void)
+{
+    yy_token_t token = {0};
+
+    token = func_floor(token_number(2.3));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 2);
+
+    token = func_floor(token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 3);
+
+    token = func_floor(token_number(-2.3));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == -3);
+
+    token = func_floor(token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_trunc(void)
+{
+    yy_token_t token = {0};
+
+    token = func_trunc(token_number(2.3));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 2);
+
+    token = func_trunc(token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 3);
+
+    token = func_trunc(token_number(-2.3));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == -2);
+
+    token = func_trunc(token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_sin(void)
+{
+    yy_token_t token = {0};
+
+    token = func_sin(token_number(0));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(token.number_val) < EPSILON);
+
+    token = func_sin(token_number(M_PI_2));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(1.0 - token.number_val) < EPSILON);
+
+    token = func_sin(token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_cos(void)
+{
+    yy_token_t token = {0};
+
+    token = func_cos(token_number(0));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(1.0 - token.number_val) < EPSILON);
+
+    token = func_cos(token_number(M_PI_2));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(token.number_val) < EPSILON);
+
+    token = func_cos(token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_tan(void)
+{
+    yy_token_t token = {0};
+
+    token = func_tan(token_number(0));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(token.number_val) < EPSILON);
+
+    token = func_tan(token_number(M_PI_4));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(1.0 - token.number_val) < EPSILON);
+
+    token = func_tan(token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_exp(void)
+{
+    yy_token_t token = {0};
+
+    token = func_exp(token_number(1));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(M_E - token.number_val) < EPSILON);
+
+    token = func_exp(token_number(0));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(1.0 - token.number_val) < EPSILON);
+
+    token = func_exp(token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_log(void)
+{
+    yy_token_t token = {0};
+
+    token = func_log(token_number(M_E));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(1.0 - token.number_val) < EPSILON);
+
+    token = func_log(token_number(M_E*M_E));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(2.0 - token.number_val) < EPSILON);
+
+    token = func_log(token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_sqrt(void)
+{
+    yy_token_t token = {0};
+
+    token = func_sqrt(token_number(0));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(token.number_val) < EPSILON);
+
+    token = func_sqrt(token_number(100));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(10.0 - token.number_val) < EPSILON);
+
+    token = func_sqrt(token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_pow(void)
+{
+    yy_token_t token = {0};
+
+    token = func_pow(token_number(2), token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(8.0 - token.number_val) < EPSILON);
+
+    token = func_pow(token_number(1), token_number(6));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(1.0 - token.number_val) < EPSILON);
+
+    token = func_pow(token_number(1), token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+
+    token = func_pow(token_bool(true), token_number(1));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_minus(void)
+{
+    yy_token_t token = {0};
+
+    token = func_minus(token_number(1));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(-1.0 - token.number_val) < EPSILON);
+
+    token = func_minus(token_number(-1));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(1.0 - token.number_val) < EPSILON);
+
+    token = func_minus(token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_ident(void)
+{
+    yy_token_t token = {0};
+
+    token = func_ident(token_number(1));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 1.0);
+
+    token = func_ident(token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_addition(void)
+{
+    yy_token_t token = {0};
+
+    token = func_addition(token_number(2), token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 5.0);
+
+    token = func_addition(token_bool(true), token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+
+    token = func_addition(token_number(2), token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_subtraction(void)
+{
+    yy_token_t token = {0};
+
+    token = func_subtraction(token_number(2), token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == -1.0);
+
+    token = func_subtraction(token_bool(true), token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+
+    token = func_subtraction(token_number(2), token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_mult(void)
+{
+    yy_token_t token = {0};
+
+    token = func_mult(token_number(2), token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 6.0);
+
+    token = func_mult(token_bool(true), token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+
+    token = func_mult(token_number(2), token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_div(void)
+{
+    yy_token_t token = {0};
+
+    token = func_div(token_number(2), token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(fabs(2.0/3.0 - token.number_val) < EPSILON);
+
+    token = func_div(token_bool(true), token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+
+    token = func_div(token_number(2), token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_mod(void)
+{
+    yy_token_t token = {0};
+
+    token = func_mod(token_number(7), token_number(5));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 2.0);
+
+    token = func_mod(token_bool(true), token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+
+    token = func_mod(token_number(2), token_bool(true));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
+
+void test_func_min(void)
+{
+    yy_token_t token = {0};
+
+    token = func_min(token_number(7), token_number(5));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 5.0);
+
+    token = func_min(token_number(5), token_number(7));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 5.0);
+
+    token = func_min(token_number(5), token_number(5));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 5.0);
+
+    token = func_min(token_bool(true), token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+
+    // TODO: check datetime case
+    // TODO: check string case
+}
+
+void test_func_max(void)
+{
+    yy_token_t token = {0};
+
+    token = func_max(token_number(7), token_number(5));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 7.0);
+
+    token = func_max(token_number(5), token_number(7));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 7.0);
+
+    token = func_max(token_number(5), token_number(5));
+    TEST_CHECK(token.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(token.number_val == 5.0);
+
+    token = func_max(token_bool(true), token_number(3));
+    TEST_CHECK(token.type == YY_TOKEN_ERROR);
+
+    // TODO: check datetime case
+    // TODO: check string case
+}
+
+void test_func_now(void)
 {
     char buf[128] = {0};
     yy_token_t token1 = {0};
     yy_token_t token2 = {0};
 
-    // get_datepart
-    TEST_CHECK(get_datepart(&((yy_str_t){"year", 4})) == 0);
-    TEST_CHECK(get_datepart(&((yy_str_t){"month", 5})) == 1);
-    TEST_CHECK(get_datepart(&((yy_str_t){"day", 3})) == 2);
-    TEST_CHECK(get_datepart(&((yy_str_t){"hour", 4})) == 3);
-    TEST_CHECK(get_datepart(&((yy_str_t){"minute", 6})) == 4);
-    TEST_CHECK(get_datepart(&((yy_str_t){"second", 6})) == 5);
-    TEST_CHECK(get_datepart(&((yy_str_t){"millis", 6})) == 6);
-
-    TEST_CHECK(get_datepart(&((yy_str_t){"", 0})) == -1);
-    TEST_CHECK(get_datepart(&((yy_str_t){"xxx", 3})) == -1);
-    TEST_CHECK(get_datepart(&((yy_str_t){"years", 5})) == -1);
-    TEST_CHECK(get_datepart(&((yy_str_t){"months", 6})) == -1);
-    TEST_CHECK(get_datepart(&((yy_str_t){"days", 4})) == -1);
-    TEST_CHECK(get_datepart(&((yy_str_t){"hours", 5})) == -1);
-    TEST_CHECK(get_datepart(&((yy_str_t){"minutes", 7})) == -1);
-    TEST_CHECK(get_datepart(&((yy_str_t){"seconds", 7})) == -1);
-    TEST_CHECK(get_datepart(&((yy_str_t){"ms", 2})) == -1);
-
-    // now()
     token1 = func_now(NULL);
     TEST_CHECK(token1.type == YY_TOKEN_DATETIME);
     datetime_to_str(token1.datetime_val, buf);
+
     token2 = yy_parse_datetime(buf, buf + strlen(buf));
     TEST_CHECK(token2.type == YY_TOKEN_DATETIME);
     TEST_CHECK(token1.datetime_val == token2.datetime_val);
+}
 
-    // dateadd()
+void test_func_dateadd(void)
+{
     check_dateadd("2024-08-26T14:16:53.493Z",   +10, "year"  , "2034-08-26T14:16:53.493Z");
     check_dateadd("2024-08-26T14:16:53.493Z",   -10, "year"  , "2014-08-26T14:16:53.493Z");
     check_dateadd("2024-08-26T14:16:53.493Z",   +10, "month" , "2025-06-26T14:16:53.493Z");
@@ -1501,8 +1657,10 @@ void test_funcs_datetime(void)
     check_dateadd("2024-08-26T14:16:53.493Z", -5500, "millis", "2024-08-26T14:16:47.993Z");
     check_dateadd("2024-08-26T14:16:53.493Z", -5500, "millis", "2024-08-26T14:16:47.993Z");
     check_dateadd("2024-08-26T14:16:53.493Z",    10, "xxx"   , NULL);
+}
 
-    // dateset()
+void test_func_dateset(void)
+{
     check_dateset("2024-08-26T14:16:53.493Z",  2027, "year"  , "2027-08-26T14:16:53.493Z");
     check_dateset("2024-08-26T14:16:53.493Z",     3, "month" , "2024-03-26T14:16:53.493Z");
     check_dateset("2024-08-26T14:16:53.493Z",    23, "day"   , "2024-08-23T14:16:53.493Z");
@@ -1511,8 +1669,10 @@ void test_funcs_datetime(void)
     check_dateset("2024-08-26T14:16:53.493Z",    12, "second", "2024-08-26T14:16:12.493Z");
     check_dateset("2024-08-26T14:16:53.493Z",   123, "millis", "2024-08-26T14:16:53.123Z");
     check_dateset("2024-08-26T14:16:53.493Z",    10, "xxx"   , NULL);
+}
 
-    // datetrunc()
+void test_func_datetrunc(void)
+{
     check_datetrunc("2024-08-26T14:16:53.493Z", "year"  , "2024-01-01T00:00:00.000Z");
     check_datetrunc("2024-08-26T14:16:53.493Z", "month" , "2024-08-01T00:00:00.000Z");
     check_datetrunc("2024-08-26T14:16:53.493Z", "day"   , "2024-08-26T00:00:00.000Z");
@@ -1523,11 +1683,10 @@ void test_funcs_datetime(void)
     check_datetrunc("2024-08-26T14:16:53.493Z", "xxx"   , NULL);
 }
 
-void test_funcs_bool(void)
+void test_func_isinf(void)
 {
     yy_token_t token = {0};
 
-    // isinf()
     token = func_isinf(token_number(3.14));
     TEST_CHECK(token.type == YY_TOKEN_BOOL);
     TEST_CHECK(token.bool_val == false);
@@ -1546,8 +1705,12 @@ void test_funcs_bool(void)
 
     token = func_isinf(token_bool(true));
     TEST_CHECK(token.type == YY_TOKEN_ERROR);
+}
 
-    // isnan()
+void test_func_isnan(void)
+{
+    yy_token_t token = {0};
+
     token = func_isnan(token_number(+0.0/0.0));
     TEST_CHECK(token.type == YY_TOKEN_BOOL);
     TEST_CHECK(token.bool_val == true);
@@ -1568,17 +1731,65 @@ void test_funcs_bool(void)
     TEST_CHECK(token.type == YY_TOKEN_ERROR);
 }
 
-void test_funcs_string(void)
+void test_funcs(void)
 {
-    // TODO 
+    test_func_now();
+    test_func_datepart();
+    test_func_datetrunc();
+    test_func_dateset();
+    test_func_dateadd();
+    test_func_datepart();
 
-    // upper()
-    // lower()
-    // trim()
-    // concat()
-    // substr()
-    // min()
-    // max()
+    test_func_isnan();
+    test_func_isinf();
+    test_func_div();
+    test_func_mod();
+    test_func_mult();
+    test_func_subtraction();
+    test_func_addition();
+    test_func_ident();
+    test_func_minus();
+    test_func_pow();
+    test_func_sqrt();
+    test_func_log();
+    test_func_exp();
+    test_func_sin();
+    test_func_cos();
+    test_func_tan();
+    test_func_trunc();
+    test_func_floor();
+    test_func_ceil();
+    test_func_abs();
+
+    // test_func_str();
+    // test_func_unescape();
+    // test_func_upper()
+    // test_func_lower()
+    // test_func_trim()
+    // test_func_concat()
+    // test_func_substr()
+    // test_func_replace()
+    test_func_length();
+    test_func_find();
+
+    test_func_min();
+    test_func_max();
+    // test_func_clamp();
+    // test_func_iserror();
+    // test_func_ifelse();
+
+    // test_func_not();
+    // test_func_lt();
+    // test_func_le();
+    // test_func_gt();
+    // test_func_ge();
+    // test_func_eq();
+    // test_func_ne();
+
+    // test_func_and();
+    // test_func_or();
+
+    // test_func_variable();
 }
 
 TEST_LIST = {
@@ -1598,6 +1809,7 @@ TEST_LIST = {
     { "read_symbol_ok",               test_read_symbol_ok },
     { "read_symbol_ko",               test_read_symbol_ko },
     { "skip_spaces",                  test_skip_spaces },
+    { "datepart",                     test_datepart },
     { "yy_eval_number_ok",            test_eval_number_ok },
     { "yy_eval_number_ko",            test_eval_number_ko },
     { "yy_eval_datetime_ok",          test_eval_datetime_ok },
@@ -1606,9 +1818,6 @@ TEST_LIST = {
     { "yy_eval_string_ko",            test_eval_string_ko },
     { "yy_eval_bool_ok",              test_eval_bool_ok },
     { "yy_eval_bool_ko",              test_eval_bool_ko },
-    { "funcs_number",                 test_funcs_number },
-    { "funcs_datetime",               test_funcs_datetime },
-    { "funcs_bool",                   test_funcs_bool },
-    { "funcs_string",                 test_funcs_string },
+    { "yy_funcs",                     test_funcs },
     { NULL, NULL }
 };
