@@ -157,6 +157,43 @@ void print_stack(const yy_stack_t *stack)
     print_token(result);
 }
 
+yy_token_t resolve(yy_str_t *var, void *data)
+{
+    UNUSED(data);
+
+    if (!var)
+        return token_error(YY_ERROR);
+
+    if (var->len != 1)
+        return token_error(YY_ERROR_REF);
+
+    switch (var->ptr[0])
+    {
+        case 'a': return token_number(0);
+        case 'b': return token_number(1);
+        case 'c': return token_number(2);
+
+        case 'd': return token_datetime(1725776766211);
+
+        case 'm': return token_bool(true);
+        case 'n': return token_bool(false);
+
+        case 'p': return token_string("Bob", 3);
+        case 'q': return token_string("John", 4);
+        case 's': return token_string("lorem ipsum", 11);
+
+        case 'u': return token_error(YY_ERROR_SYNTAX);
+        case 'v': return token_error(YY_ERROR_VALUE);
+        case 'w': return token_error(YY_ERROR_CREF);
+
+        case 'x': return token_number(0.5);
+        case 'y': return token_number(M_PI);
+        case 'z': return token_number(1.0/3.0);
+
+        default: return token_error(YY_ERROR_REF);
+    }
+}
+
 void check_parse_number_ok(const char *str, double expected_val)
 {
     size_t len = strlen(str);
@@ -347,108 +384,120 @@ void check_skip_spaces(const char *str, int end_len, size_t expected_len)
     TEST_MSG("Case='%s', expected=%d, result=%d", str, (int) expected_len, (int) (ptr - str));
 }
 
-void check_compile_number_ok(const char *str)
+void check_eval_number_ok(const char *str, double expected)
 {
     yy_token_t data[64] = {0};
     yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
-    yy_error_e rc = yy_compile_number(str, str + strlen(str), &stack, NULL);
+    yy_token_t result = yy_eval_number(str, str + strlen(str), &stack, resolve, NULL);
 
-    TEST_CHECK(rc == YY_OK);
-    TEST_MSG("Case='%s', error=unexpected-rc, rc=%d", str, rc);
+    TEST_CHECK(result.type == YY_TOKEN_NUMBER);
+    TEST_MSG("Case='%s', error=unexpected-type, type=%d", str, result.type);
 
-    printf("%s --> ", str);
-    print_stack(&stack);
-    printf("\n");
+    TEST_CHECK(fabs(expected - result.number_val) < EPSILON);
+    TEST_MSG("Case='%s', error=unexpected-value, expected=%lf, result=%lf", str, expected, result.number_val);
 }
 
-void check_compile_number_ko(const char *str)
+void check_eval_number_ko(const char *str, yy_error_e expected_err)
 {
     yy_token_t data[64] = {0};
     yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
-    yy_error_e rc = yy_compile_number(str, str + strlen(str), &stack, NULL);
+    yy_token_t result = yy_eval_number(str, str + strlen(str), &stack, resolve, NULL);
 
-    TEST_CHECK(rc != YY_OK);
-    TEST_MSG("Case='%s', error=failed", str);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+    TEST_MSG("Case='%s', error=unexpected-type, type=%d", str, result.type);
+
+    TEST_CHECK(result.error == expected_err);
+    TEST_MSG("Case='%s', error=unexpected-error, expected=%d, result=%d", str, expected_err, result.error);
 }
 
-void check_compile_datetime_ok(const char *str)
+void check_eval_datetime_ok(const char *str, const char *expected_str)
+{
+    yy_token_t data[64] = {0};
+    yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
+    yy_token_t expected = yy_parse_datetime(expected_str, expected_str + strlen(expected_str));
+
+    yy_token_t result = yy_eval_datetime(str, str + strlen(str), &stack, resolve, NULL);
+
+    TEST_CHECK(result.type == YY_TOKEN_DATETIME);
+    TEST_MSG("Case='%s', error=unexpected-type, type=%d", str, result.type);
+
+    char buf[1024] = {0};
+    TEST_CHECK(result.datetime_val == expected.datetime_val);
+    TEST_MSG("Case='%s', error=unexpected-value, expected=%s, result=%s", 
+        str, expected_str, datetime_to_str(result.datetime_val, buf));
+}
+
+void check_eval_datetime_ko(const char *str, yy_error_e expected_err)
 {
     yy_token_t data[64] = {0};
     yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
-    yy_error_e rc = yy_compile_datetime(str, str + strlen(str), &stack, NULL);
+    yy_token_t result = yy_eval_datetime(str, str + strlen(str), &stack, resolve, NULL);
 
-    TEST_CHECK(rc == YY_OK);
-    TEST_MSG("Case='%s', error=unexpected-rc, rc=%d", str, rc);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+    TEST_MSG("Case='%s', error=unexpected-type, type=%d", str, result.type);
 
-    printf("%s --> ", str);
-    print_stack(&stack);
-    printf("\n");
+    TEST_CHECK(result.error == expected_err);
+    TEST_MSG("Case='%s', error=unexpected-error, expected=%d, result=%d", str, expected_err, result.error);
 }
 
-void check_compile_datetime_ko(const char *str)
-{
-    yy_token_t data[64] = {0};
-    yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
-
-    yy_error_e rc = yy_compile_datetime(str, str + strlen(str), &stack, NULL);
-
-    TEST_CHECK(rc != YY_OK);
-    TEST_MSG("Case='%s', error=failed", str);
-}
-
-void check_compile_string_ok(const char *str)
+void check_eval_string_ok(const char *str, const char *expected)
 {
     yy_token_t data[256] = {0};
     yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
-    yy_error_e rc = yy_compile_string(str, str + strlen(str), &stack, NULL);
+    yy_token_t result = yy_eval_string(str, str + strlen(str), &stack, resolve, NULL);
 
-    TEST_CHECK(rc == YY_OK);
-    TEST_MSG("Case='%s', error=unexpected-rc, rc=%d", str, rc);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_MSG("Case='%s', error=unexpected-type, type=%d", str, result.type);
 
-    printf("%s --> ", str);
-    print_stack(&stack);
-    printf("\n");
+    TEST_CHECK(str_cmp(result.str_val, (yy_str_t){expected, strlen(expected)}) == 0);
+    TEST_MSG("Case='%s', error=unexpected-value, expected=%s, result=%.*s", 
+        str, expected, result.str_val.len, result.str_val.ptr);
 }
 
-void check_compile_string_ko(const char *str)
-{
-    yy_token_t data[64] = {0};
-    yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
-
-    yy_error_e rc = yy_compile_string(str, str + strlen(str), &stack, NULL);
-
-    TEST_CHECK(rc != YY_OK);
-    TEST_MSG("Case='%s', error=failed", str);
-}
-
-void check_compile_bool_ok(const char *str)
+void check_eval_string_ko(const char *str, yy_error_e expected_err)
 {
     yy_token_t data[256] = {0};
     yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
-    yy_error_e rc = yy_compile_bool(str, str + strlen(str), &stack, NULL);
+    yy_token_t result = yy_eval_string(str, str + strlen(str), &stack, resolve, NULL);
 
-    TEST_CHECK(rc == YY_OK);
-    TEST_MSG("Case='%s', error=unexpected-rc, rc=%d", str, rc);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+    TEST_MSG("Case='%s', error=unexpected-type, type=%d", str, result.type);
 
-    printf("%s --> ", str);
-    print_stack(&stack);
-    printf("\n");
+    TEST_CHECK(result.error == expected_err);
+    TEST_MSG("Case='%s', error=unexpected-error, expected=%d, result=%d", str, expected_err, result.error);
 }
 
-void check_compile_bool_ko(const char *str)
+void check_eval_bool_ok(const char *str, bool expected)
 {
     yy_token_t data[64] = {0};
     yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
 
-    yy_error_e rc = yy_compile_bool(str, str + strlen(str), &stack, NULL);
+    yy_token_t result = yy_eval_bool(str, str + strlen(str), &stack, resolve, NULL);
 
-    TEST_CHECK(rc != YY_OK);
-    TEST_MSG("Case='%s', error=failed", str);
+    TEST_CHECK(result.type == YY_TOKEN_BOOL);
+    TEST_MSG("Case='%s', error=unexpected-type, type=%d", str, result.type);
+
+    TEST_CHECK(result.bool_val == expected);
+    TEST_MSG("Case='%s', error=unexpected-value, expected=%d, result=%d", str, expected, result.bool_val);
+}
+
+void check_compile_bool_ko(const char *str, yy_error_e expected_err)
+{
+    yy_token_t data[64] = {0};
+    yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
+
+    yy_token_t result = yy_eval_bool(str, str + strlen(str), &stack, resolve, NULL);
+
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+    TEST_MSG("Case='%s', error=unexpected-type, type=%d", str, result.type);
+
+    TEST_CHECK(result.error == expected_err);
+    TEST_MSG("Case='%s', error=unexpected-error, expected=%d, result=%d", str, expected_err, result.error);
 }
 
 // ==============
@@ -1003,114 +1052,128 @@ void test_skip_spaces(void)
     check_skip_spaces("    ", 2, 2);
 }
 
-void test_compile_number(void)
+void test_eval_number_ok(void)
 {
-    check_compile_number_ok("1+2");
-    check_compile_number_ok("1+2-3");
-    check_compile_number_ok("1*2/3");
-    check_compile_number_ok("1+2*3");
-    check_compile_number_ok("1*2+3");
-    check_compile_number_ok("-3+1");
-    check_compile_number_ok("+3");
-    check_compile_number_ok("1+(2*3)-3");
-    check_compile_number_ok("1+(2*3)/4-3");
-    check_compile_number_ok("-(1+(2*3)/4)-3");
-    check_compile_number_ok("(min(1,2)-max(3,4))*3");
-    check_compile_number_ok("-4%3 + 2^5 - (pow(2,3))");
-    check_compile_number_ok("${a} + 1");
-    check_compile_number_ok("((((-1))))");
-    check_compile_number_ok("abs(-PI)");
-    check_compile_number_ok("2 * (-1)");
-    check_compile_number_ok("min(2+3*4, 1+3*5)");
-    check_compile_number_ok("sqrt(exp(((0 * (-4332.4091)) / (10865972.2922 - 275715300.8411))))");
-    check_compile_number_ok("log((-2729166) / (-0.0205) * exp(0))");
-    check_compile_number_ok("1 + length(\"abc\")");
-    check_compile_number_ok("find(\"cd\", \"abcdefg\", 0)");
-    check_compile_number_ok("clamp(1, 5, 7)");
-    check_compile_number_ok("clamp(5, 5, 7)");
-    check_compile_number_ok("clamp(6, 5, 7)");
-    check_compile_number_ok("clamp(7, 5, 7)");
-    check_compile_number_ok("clamp(8, 5, 7)");
-    check_compile_number_ok("ifelse(1 < 4 && false, 5, 7)");
-    check_compile_number_ok("1 + cos(variable(\"x\" + str($index)))");
-
-    check_compile_number_ko(" ");
-    check_compile_number_ko("not_a_var");
-    check_compile_number_ko("+");
-    check_compile_number_ko("()");
-    check_compile_number_ko("(((((())))))");
-    check_compile_number_ko("((1)");
-    check_compile_number_ko("1+(");
-    check_compile_number_ko("1+()");
-    check_compile_number_ko("1*/3");
-    check_compile_number_ko("2^^3");
-    check_compile_number_ko("coa(pi)");
-    check_compile_number_ko("cosh(pi)");
-    check_compile_number_ko("min");
-    check_compile_number_ko("min(");
-    check_compile_number_ko("min(,");
-    check_compile_number_ko("min(1,");
-    check_compile_number_ko("min(1,)");
-    check_compile_number_ko("min(1,2");
-    check_compile_number_ko("+-1"); // two consecutive operators
-    check_compile_number_ko("++1"); // two consecutive operators
-    check_compile_number_ko("1++1"); // two consecutive operators
-    check_compile_number_ko("1+-1"); // two consecutive operators
-    check_compile_number_ko("2 * -1"); // two consecutive operators
+    check_eval_number_ok("1+2", 3);
+    check_eval_number_ok("1+2-3", 0);
+    check_eval_number_ok("1*2/3", 2.0/3.0);
+    check_eval_number_ok("1+2*3", 7);
+    check_eval_number_ok("1*2+3", 5);
+    check_eval_number_ok("-3+1", -2);
+    check_eval_number_ok("+3", 3);
+    check_eval_number_ok("1+(2*3)-3", 4);
+    check_eval_number_ok("1+(2*3)/4-3", -0.5);
+    check_eval_number_ok("-(1+(2*3)/4)-3", -5.5);
+    check_eval_number_ok("(min(1,2)-max(3,4))*3", -9);
+    check_eval_number_ok("-4%3 + 2^5 - (pow(2,3))", 23);
+    check_eval_number_ok("${a} + 1", 1);
+    check_eval_number_ok("((((-1))))", -1);
+    check_eval_number_ok("abs(-PI)", M_PI);
+    check_eval_number_ok("2 * (-1)", -2);
+    check_eval_number_ok("min(2+3*4, 1+3*5)", 14);
+    check_eval_number_ok("sqrt(exp(((0 * (-4332.4091)) / (10865972.2922 - 275715300.8411))))", 1);
+    check_eval_number_ok("log((-2729166) / (-0.0205) * exp(0))", log((-2729166) / (-0.0205) * exp(0)));
+    check_eval_number_ok("1 + length(\"abc\")", 4);
+    check_eval_number_ok("find(\"cd\", \"abcdefg\", 0)", 2);
+    check_eval_number_ok("clamp(1, 5, 7)", 5);
+    check_eval_number_ok("ifelse(1 < 4 && false, 5, 7)", 7);
+    check_eval_number_ok("1 + cos(variable(\"a\"))", 2);
 }
 
-void test_compile_datetime(void)
+void test_eval_number_ko(void)
 {
-    check_compile_datetime_ok("now()");
-    check_compile_datetime_ok("\"2024-08-30T06:16:34.123Z\"");
-    check_compile_datetime_ok("datetrunc(now(), \"day\")");
-    check_compile_datetime_ok("dateadd(\"2024-08-30T06:16:34.123Z\", 3, \"month\")");
-    check_compile_datetime_ok("dateset(\"2024-08-30T06:16:34.123Z\", 14, \"hour\")");
-    check_compile_datetime_ok("min(\"2023-08-30T06:16:34.123Z\", now())");
-    check_compile_datetime_ok("max(\"2023-08-30T06:16:34.123Z\", now())");
-    check_compile_datetime_ok("clamp(now(), \"2023-08-30\", \"2023-11-06\")");
+    check_eval_number_ko(" ", YY_ERROR_SYNTAX);
+    check_eval_number_ko("not_a_var", YY_ERROR_SYNTAX);
+    check_eval_number_ko("+", YY_ERROR_SYNTAX);
+    check_eval_number_ko("()", YY_ERROR_SYNTAX);
+    check_eval_number_ko("(((((())))))", YY_ERROR_SYNTAX);
+    check_eval_number_ko("((1)", YY_ERROR_SYNTAX);
+    check_eval_number_ko("1+(", YY_ERROR_SYNTAX);
+    check_eval_number_ko("1+()", YY_ERROR_SYNTAX);
+    check_eval_number_ko("1*/3", YY_ERROR_SYNTAX);
+    check_eval_number_ko("2^^3", YY_ERROR_SYNTAX);
+    check_eval_number_ko("coa(pi)", YY_ERROR_SYNTAX);
+    check_eval_number_ko("cosh(pi)", YY_ERROR_SYNTAX);
+    check_eval_number_ko("min", YY_ERROR_SYNTAX);
+    check_eval_number_ko("min(", YY_ERROR_SYNTAX);
+    check_eval_number_ko("min(,", YY_ERROR_SYNTAX);
+    check_eval_number_ko("min(1,", YY_ERROR_SYNTAX);
+    check_eval_number_ko("min(1,)", YY_ERROR_SYNTAX);
+    check_eval_number_ko("min(1,2", YY_ERROR_SYNTAX);
+    check_eval_number_ko("+-1", YY_ERROR_SYNTAX);
+    check_eval_number_ko("++1", YY_ERROR_SYNTAX);
+    check_eval_number_ko("1++1", YY_ERROR_SYNTAX);
+    check_eval_number_ko("1+-1", YY_ERROR_SYNTAX);
+    check_eval_number_ko("2 * -1", YY_ERROR_SYNTAX);
 }
 
-void test_compile_string(void)
+void test_eval_datetime_ok(void)
 {
-    check_compile_string_ok("\"Hi bob!\"");
-    check_compile_string_ok("\"first part \" + \"plus second part\"");
-    check_compile_string_ok("upper(\"Hi bob!\")");
-    check_compile_string_ok("lower(\"Hi bob!\")");
-    check_compile_string_ok("\"hi \" + upper(\"bob\")");
-    check_compile_string_ok("lower(\"Hi \") + upper(\"bob\")");
-    check_compile_string_ok("( lower(\"Hi \") + upper(\"bob\") ) + \"!\"");
-    check_compile_string_ok("trim(\"  <- leading spaces and trailing spaces->  \")");
-    check_compile_string_ok("substr(\"0123456789\", 3, 4)");
-    check_compile_string_ok("substr(\"0123456789\", 3, 10)");
-    check_compile_string_ok("substr(\"0123456789\", -10, 30)");
-    check_compile_string_ok("min(\"abc\", \"xyz\")");
-    check_compile_string_ok("max(\"abc\", \"xyz\")");
-    check_compile_string_ok("min(\"abc\", \"xyz\") + \"...\" + max(\"abc\", \"xyz\")");
-    check_compile_string_ok("trim(upper(\"  abc   \"))");
-    check_compile_string_ok("trim(substr(\"  abc   \", 3, 5))");
-    check_compile_string_ok("\"\\\\escaped string\\\\\"");
-    check_compile_string_ok("replace(\"Hi Bob!\", \"Bob\", \"John\")");
-    check_compile_string_ok("trim(replace(\" Hi BOB \", upper(\"Bob\"), lower(\"John\"))) + \"!\"");
-    check_compile_string_ok("str(PI + 10)");
-    check_compile_string_ok("str(now())");
-    check_compile_string_ok("str(\"Hi Bob\" + \"!\")");
-    check_compile_string_ok("str(1 < 3)");
+    check_eval_datetime_ok("\"2024-08-30T06:16:34.123Z\"", "2024-08-30T06:16:34.123Z");
+    check_eval_datetime_ok("datetrunc(\"2024-08-30T06:16:34.123Z\", \"day\")", "2024-08-30T00:00:00.000Z");
+    check_eval_datetime_ok("dateadd(\"2024-08-30T06:16:34.123Z\", 3, \"month\")", "2024-11-30T06:16:34.123Z");
+    check_eval_datetime_ok("dateset(\"2024-08-30T06:16:34.123Z\", 14, \"hour\")", "2024-08-30T14:16:34.123Z");
+    check_eval_datetime_ok("min(\"2023-08-30T06:16:34.123Z\", now())", "2023-08-30T06:16:34.123Z");
+    check_eval_datetime_ok("max(\"2053-08-30T06:16:34.123Z\", now())", "2053-08-30T06:16:34.123Z");
+    check_eval_datetime_ok("clamp(now(), \"2023-08-30\", \"2023-11-06\")", "2023-11-06T00:00:00.000Z");
 }
 
-void test_compile_bool(void)
+void test_eval_datetime_ko(void)
 {
-    check_compile_bool_ok("true");
-    check_compile_bool_ok("true || false");
-    check_compile_bool_ok("true && false");
-    check_compile_bool_ok("not(true)");
-    check_compile_bool_ok("not(1 > 2)");
-    check_compile_bool_ok("1 < 2 || not(1 < 2)");
-    check_compile_bool_ok("1 < 2 || not(1 < 2) && 1 != 1");
-    check_compile_bool_ok("1 < 2 && 1 > 2");
-    check_compile_bool_ok("length(\"xxx\") < 5 || isinf(cos(PI))");
-    check_compile_bool_ok("length(\"xxx\") > 5 == false");
-    check_compile_bool_ok("exp(1) != E && length(\"xxx\") > 0");
+    //TODO
+}
+
+void test_eval_string_ok(void)
+{
+    check_eval_string_ok("\"Hi bob!\"", "Hi bob!");
+    check_eval_string_ok("$s + \"!\"", "lorem ipsum!");
+    check_eval_string_ok("\"first part \" + \"plus second part\"", "first part plus second part");
+    check_eval_string_ok("upper(\"Hi bob!\")", "HI BOB!");
+    check_eval_string_ok("lower(\"Hi bob!\")", "hi bob!");
+    check_eval_string_ok("\"hi \" + upper(\"bob\")", "hi BOB");
+    check_eval_string_ok("lower(\"Hi \") + upper(\"bob\")", "hi BOB");
+    check_eval_string_ok("( lower(\"Hi \") + upper(\"bob\") ) + \"!\"", "hi BOB!");
+    check_eval_string_ok("trim(\"  <- leading spaces and trailing spaces->  \")", "<- leading spaces and trailing spaces->");
+    check_eval_string_ok("substr(\"0123456789\", 3, 4)", "3456");
+    check_eval_string_ok("substr(\"0123456789\", 3, 10)", "3456789");
+    check_eval_string_ok("substr(\"0123456789\", -10, 30)", "0123456789");
+    check_eval_string_ok("min(\"abc\", \"xyz\")", "abc");
+    check_eval_string_ok("max(\"abc\", \"xyz\")", "xyz");
+    check_eval_string_ok("min(\"abc\", \"xyz\") + \"...\" + max(\"abc\", \"xyz\")", "abc...xyz");
+    check_eval_string_ok("trim(upper(\"  abc   \"))", "ABC");
+    check_eval_string_ok("trim(substr(\"  abc   \", 3, 5))", "bc");
+    check_eval_string_ok("\"\\\\escaped string\\\\\"", "\\escaped string\\");
+    check_eval_string_ok("replace(\"Hi Bob!\", \"Bob\", \"John\")", "Hi John!");
+    check_eval_string_ok("trim(replace(\" Hi BOB \", upper(\"Bob\"), lower(\"John\"))) + \"!\"", "Hi john!");
+    check_eval_string_ok("str(PI + 10)", "13.141593");
+    check_eval_string_ok("str(datetrunc(\"2024-09-08T09:24:51.742Z\", \"second\"))", "2024-09-08T09:24:51.000Z");
+    check_eval_string_ok("str(\"Hi Bob\" + \"!\")", "Hi Bob!");
+    check_eval_string_ok("str(1 < 3)", "true");
+}
+
+void test_eval_string_ko(void)
+{
+    //TODO
+}
+
+void test_eval_bool_ok(void)
+{
+    check_eval_bool_ok("true", true);
+    check_eval_bool_ok("true || false", true);
+    check_eval_bool_ok("true && false", false);
+    check_eval_bool_ok("not(true)", false);
+    check_eval_bool_ok("not(1 > 2)", true);
+    check_eval_bool_ok("1 < 2 || not(1 < 2)", true);
+    check_eval_bool_ok("1 < 2 || not(1 < 2) && 1 != 1", true);
+    check_eval_bool_ok("1 < 2 && 1 > 2", false);
+    check_eval_bool_ok("length(\"xxx\") < 5 || isinf(cos(PI))", true);
+    check_eval_bool_ok("length(\"xxx\") > 5 == false", true);
+    check_eval_bool_ok("exp(1) != E && length(\"xxx\") > 0", false);
+}
+
+void test_eval_bool_ko(void)
+{
+    //TODO
 }
 
 void test_sizeof(void)
@@ -1450,13 +1513,13 @@ void test_funcs_datetime(void)
     check_dateset("2024-08-26T14:16:53.493Z",    10, "xxx"   , NULL);
 
     // datetrunc()
-    check_datetrunc("2024-08-26T14:16:53.493Z", "year"  , "1970-01-01T00:00:00.000Z");
-    check_datetrunc("2024-08-26T14:16:53.493Z", "month" , "2024-01-01T00:00:00.000Z");
-    check_datetrunc("2024-08-26T14:16:53.493Z", "day"   , "2024-08-01T00:00:00.000Z");
-    check_datetrunc("2024-08-26T14:16:53.493Z", "hour"  , "2024-08-26T00:00:00.000Z");
-    check_datetrunc("2024-08-26T14:16:53.493Z", "minute", "2024-08-26T14:00:00.000Z");
-    check_datetrunc("2024-08-26T14:16:53.493Z", "second", "2024-08-26T14:16:00.000Z");
-    check_datetrunc("2024-08-26T14:16:53.493Z", "millis", "2024-08-26T14:16:53.000Z");
+    check_datetrunc("2024-08-26T14:16:53.493Z", "year"  , "2024-01-01T00:00:00.000Z");
+    check_datetrunc("2024-08-26T14:16:53.493Z", "month" , "2024-08-01T00:00:00.000Z");
+    check_datetrunc("2024-08-26T14:16:53.493Z", "day"   , "2024-08-26T00:00:00.000Z");
+    check_datetrunc("2024-08-26T14:16:53.493Z", "hour"  , "2024-08-26T14:00:00.000Z");
+    check_datetrunc("2024-08-26T14:16:53.493Z", "minute", "2024-08-26T14:16:00.000Z");
+    check_datetrunc("2024-08-26T14:16:53.493Z", "second", "2024-08-26T14:16:53.000Z");
+    check_datetrunc("2024-08-26T14:16:53.493Z", "millis", "2024-08-26T14:16:53.493Z");
     check_datetrunc("2024-08-26T14:16:53.493Z", "xxx"   , NULL);
 }
 
@@ -1535,10 +1598,14 @@ TEST_LIST = {
     { "read_symbol_ok",               test_read_symbol_ok },
     { "read_symbol_ko",               test_read_symbol_ko },
     { "skip_spaces",                  test_skip_spaces },
-    { "yy_compile_number",            test_compile_number },
-    { "yy_compile_datetime",          test_compile_datetime },
-    { "yy_compile_string",            test_compile_string },
-    { "yy_compile_bool",              test_compile_bool },
+    { "yy_eval_number_ok",            test_eval_number_ok },
+    { "yy_eval_number_ko",            test_eval_number_ko },
+    { "yy_eval_datetime_ok",          test_eval_datetime_ok },
+    { "yy_eval_datetime_ko",          test_eval_datetime_ko },
+    { "yy_eval_string_ok",            test_eval_string_ok },
+    { "yy_eval_string_ko",            test_eval_string_ko },
+    { "yy_eval_bool_ok",              test_eval_bool_ok },
+    { "yy_eval_bool_ko",              test_eval_bool_ko },
     { "funcs_number",                 test_funcs_number },
     { "funcs_datetime",               test_funcs_datetime },
     { "funcs_bool",                   test_funcs_bool },

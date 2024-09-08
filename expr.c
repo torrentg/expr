@@ -2370,6 +2370,19 @@ yy_token_t yy_eval_string(const char *begin, const char *end, yy_stack_t *stack,
     return yy_eval_stack(stack, &aux, resolve, data);
 }
 
+yy_token_t yy_eval_bool(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data)
+{
+    yy_error_e rc = yy_compile_bool(begin, end, stack, NULL);
+
+    if (rc != YY_OK)
+        return token_error(rc);
+
+    uint32_t reserved = stack->reserved - stack->len;
+    yy_stack_t aux = {.data = stack->data + stack->len, .reserved = reserved, .len = 0};
+
+    return yy_eval_stack(stack, &aux, resolve, data);
+}
+
 yy_token_t yy_parse_number(const char *begin, const char *end)
 {
     if (!begin || !end || begin >= end)
@@ -2939,18 +2952,19 @@ static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part)
         return token_error(YY_ERROR_VALUE);
 
     time_t time = (time_t)(date.datetime_val / 1000UL);
+    int millis = (int)(date.datetime_val % 1000);
     struct tm stm = {0};
 
     gmtime_r(&time, &stm);
 
     switch((int) part.number_val)
     {
-        case 0: stm.tm_year = 70; fallthrough;
-        case 1: stm.tm_mon  =  0; fallthrough;
-        case 2: stm.tm_mday =  1; fallthrough;
-        case 3: stm.tm_hour =  0; fallthrough;
-        case 4: stm.tm_min  =  0; fallthrough;
-        case 5: stm.tm_sec  =  0; fallthrough;
+        case 0: stm.tm_mon  =  0; fallthrough;
+        case 1: stm.tm_mday =  1; fallthrough;
+        case 2: stm.tm_hour =  0; fallthrough;
+        case 3: stm.tm_min  =  0; fallthrough;
+        case 4: stm.tm_sec  =  0; fallthrough;
+        case 5: millis =  0; fallthrough;
         case 6: break;
         default: 
             return token_error(YY_ERROR_VALUE);
@@ -2962,7 +2976,7 @@ static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part)
     if (errno != 0)
         return token_error(YY_ERROR_VALUE);
 
-    return token_datetime((uint64_t) val_secs * 1000);
+    return token_datetime((uint64_t) val_secs * 1000 + millis);
 }
 
 // --- Functions returning a string
@@ -3648,13 +3662,7 @@ static int str_cmp(const yy_str_t str1, const yy_str_t str2)
     if (ret != 0)
         return ret;
 
-    if (str1.len < str2.len)
-        return -1;
-
-    if (str1.len == str2.len)
-        return 0;
-
-    return 1;
+    return (str1.len - str2.len);
 }
 
 static yy_token_t func_lt(yy_token_t x, yy_token_t y)

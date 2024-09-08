@@ -1,19 +1,23 @@
-<style>
-table { margin: 1em };
-</style>
-
 # expr
+
 A simple expressions parser.
 
 Features:
 
-* Iterator based interface.
 * Supports multiple types (number, bool, time, string and error)
 * Memory managed by user (no allocs)
+* Iterator based interface
+* No dependencies
 
-__Grammar for types__
+## Examples
 
+```txt
+(1 + ifelse($x == "John", 3, 25)) * datepart(now(), "day")
 ```
+
+## Grammar for types
+
+```txt
 number      = (0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?(0|[1-9][0-9]*))?
 datetime    = '"' (19[7-9][0-9]|2[0-9]{3})-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])(T([01][0-9]|2[0-3]):([0-5][0-9]):([0-5][0-9])(.[0-9]{1,3}Z?)?)? '"'
 boolean     = 'true' | 'True' | 'TRUE' | 'false' | 'False| 'FALSE'
@@ -23,28 +27,33 @@ timePart    = '"' ('year' | 'month' | 'day' | 'hour' | 'minute' | 'second' | 'mi
 ```
 
 Number: [double-precision floating point](https://en.wikipedia.org/wiki/Double-precision_floating-point_format) in JSON-format ([RFC-7159](https://tools.ietf.org/html/rfc7159) , section 6 -numbers-)
+
 * Examples: `42`, `-0.5`, `314e-2`, `0.314e1`
 * Not supported: ~~`03`, `.5`, `42.`, `1.e1`, `1e04`~~
 
 Datetime: UTC millis from epoch-time in [ISO-8601](https://en.wikipedia.org/wiki/ISO_8601)
+
 * Examples: `2024-08-24T08:19:25.402Z`, `2024-08-24T08:19:25.402`, `2024-08-24T08:19:25`, `2024-08-24`
 * Not supported: ~~`24/08/2024`, `08/24/2024`, `24 August 2024`, etc.~~
 
 String: double-quoted string supporting escape characters (`\n`, `\t`, `\"`, `\\`)
+
 * Examples: `"I am a string"`, `"val=\"xxx\""`
 * Not supported: A string surrounded by quotes containing a NUL.
 
 Boolean: `true`, `True`, `TRUE`, `false`, `False`, `FALSE`
+
 * Examples: `true`, `false`
 * Not supported: ~~`1`, `0`, `TrUe`~~
 
 Variable: Variable name prefixed by `'$'`
+
 * Examples: `$x`, `$sum_values`, `${x}`, `${free var name, yep}`
 * Not supported: ~~`$a-b`, `$_a`, `${x}d}`, `${}`~~
 
-__Grammar for numeric expressions__
+## Grammar for numeric expressions
 
-```
+```txt
 numExpr     = numTerm (numInfixOp numTerm)*
 numTerm     = number | 
               numConst | 
@@ -94,9 +103,9 @@ numConst    = <see list below>
 | number | `Inf`    | Infinite            |
 | number | `NaN`    | Not-a-number        |
 
-__Grammar for time expressions__
+## Grammar for datetime expressions
 
-```
+```txt
 timeExpr    = timeTerm
 timeTerm    = datetime | 
               varExpr | 
@@ -117,9 +126,9 @@ timeFunc    = <see list below>
 | datetime | `max`        | (timeExpr, timeExpr)          | Returns the larger of two given values   |
 | datetime | `ifelse`     | (boolExpr, timeExpr, timeExpr)| Conditional value                        |
 
-__Grammar for string expressions__
+## Grammar for string expressions
 
-```
+```txt
 strExpr     = strTerm ('+' strTerm)*
 strTerm     = string | 
               varExpr | 
@@ -142,9 +151,9 @@ strFunc     = <see list below>
 | string   | `ifelse`     | (boolExpr, strExpr, strExpr)  | Conditional value                        |
 | string   | `str`        | (numExpr)<br/>(timeExpr)<br/>(boolExpr)<br/>(strExpr) | Converts value to string                 |
 
-__Grammar for boolean expressions__
+## Grammar for boolean expressions
 
-```
+```txt
 boolExpr     = boolTerm (boolInfixOp boolTerm)*
 boolTerm     = boolean | 
                varExpr | 
@@ -175,9 +184,9 @@ boolFunc     = <see list below>
 | boolean  | `isnan`      | (numExpr)                     | Checks if a number is a NaN              |
 | boolean  | `iserror`    | (numExpr) <br/> (timeExpr) <br/> (boolExpr) <br/> (strExpr) | Checks if there is an error              |
 
-__Grammar for variable expressions__
+## Grammar for variable expressions
 
-```
+```txt
 varExpr      = varTerm
 varTerm      = variable | 
                varFunc
@@ -191,7 +200,7 @@ varFunc      = <see list below>
 > Utility function to create references to variables on-the-fly.<br/>
 > `variable("x[" + str($index) + "]")` &rarr; `${x[1]}`
 
-__Operators precedence__
+## Operators precedence
 
 Expr implements the [standard](https://en.cppreference.com/w/c/language/operator_precedence) operators precedence
 
