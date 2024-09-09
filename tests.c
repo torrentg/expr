@@ -1166,7 +1166,7 @@ void test_eval_string_ok(void)
     check_eval_string_ok("\"\\\\escaped string\\\\\"", "\\escaped string\\");
     check_eval_string_ok("replace(\"Hi Bob!\", \"Bob\", \"John\")", "Hi John!");
     check_eval_string_ok("trim(replace(\" Hi BOB \", upper(\"Bob\"), lower(\"John\"))) + \"!\"", "Hi john!");
-    check_eval_string_ok("str(PI + 10)", "13.141593");
+    check_eval_string_ok("str(PI + 10)", "13.1416");
     check_eval_string_ok("str(datetrunc(\"2024-09-08T09:24:51.742Z\", \"second\"))", "2024-09-08T09:24:51.000Z");
     check_eval_string_ok("str(\"Hi Bob\" + \"!\")", "Hi Bob!");
     check_eval_string_ok("str(1 < 3)", "true");
@@ -1731,6 +1731,197 @@ void test_func_isnan(void)
     TEST_CHECK(token.type == YY_TOKEN_ERROR);
 }
 
+void test_func_str(void)
+{
+    yy_token_t data[64] = {0};
+    yy_stack_t stack = {.data = data, .reserved = sizeof(data)/sizeof(data[0]), .len = 0};
+    char *end_stack = (char *) &stack.data[stack.reserved];
+    yy_eval_ctx_t ctx = {.stack = &stack, .tmp_str = end_stack};
+    yy_token_t result = {0};
+    yy_token_t aux = {0};
+    const char date_str[] = "2024-09-08T00:00:00.000Z";
+
+    result = func_str(token_number(1), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string("1", 1)) == 0);
+
+    ctx.tmp_str = end_stack;
+    result = func_str(token_number(M_PI), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string("3.14159", 7)) == 0);
+
+    ctx.tmp_str = end_stack;
+    result = func_str(token_number(NAN), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string("NaN", 3)) == 0);
+
+    ctx.tmp_str = end_stack;
+    result = func_str(token_number(-INFINITY), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string("-Inf", 4)) == 0);
+
+    ctx.tmp_str = end_stack;
+    aux = yy_parse_datetime(date_str, date_str + 24);
+    TEST_CHECK(aux.type == YY_TOKEN_DATETIME);
+    result = func_str(aux, &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string(date_str, 24)) == 0);
+
+    ctx.tmp_str = end_stack;
+    aux = yy_parse_string(date_str, date_str + 24);
+    TEST_CHECK(aux.type == YY_TOKEN_STRING);
+    result = func_str(aux, &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string(date_str, 24)) == 0);
+
+    ctx.tmp_str = end_stack;
+    result = func_str(token_bool(true), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string("true", 4)) == 0);
+
+    ctx.tmp_str = end_stack;
+    result = func_str(token_bool(false), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string("false", 5)) == 0);
+
+    ctx.tmp_str = end_stack;
+    result = func_str(token_error(YY_ERROR_VALUE), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+}
+
+void test_func_unescape(void)
+{
+    yy_token_t data[64] = {0};
+    yy_stack_t stack = {.data = data, .reserved = sizeof(data)/sizeof(data[0]), .len = 0};
+    char *end_stack = (char *) &stack.data[stack.reserved];
+    yy_eval_ctx_t ctx = {.stack = &stack, .tmp_str = end_stack};
+    yy_token_t result = {0};
+    const char str_escaped[] = "a\\tb\\nc\\xd\\\\e\\\"f";
+    const char str_unescaped[] = "a\tb\nc\\xd\\e\"f";
+
+    ctx.tmp_str = end_stack;
+    result = func_unescape(token_string(str_escaped, strlen(str_escaped)), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string(str_unescaped, strlen(str_unescaped))) == 0);
+
+    // leading and trailing escaped chars
+    ctx.tmp_str = end_stack;
+    result = func_unescape(token_string(str_escaped + 1, strlen(str_escaped) - 2), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string(str_unescaped + 1, strlen(str_unescaped) - 2)) == 0);
+
+    ctx.tmp_str = end_stack;
+    result = func_unescape(token_error(YY_ERROR_VALUE), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+}
+
+void test_func_upper(void)
+{
+    yy_token_t data[64] = {0};
+    yy_stack_t stack = {.data = data, .reserved = sizeof(data)/sizeof(data[0]), .len = 0};
+    char *end_stack = (char *) &stack.data[stack.reserved];
+    yy_eval_ctx_t ctx = {.stack = &stack, .tmp_str = end_stack};
+    yy_token_t result = {0};
+    const char str[] = ",aBc...\\t...xYz_";
+    const char expected[] = ",ABC...\\T...XYZ_";
+
+    ctx.tmp_str = end_stack;
+    result = func_upper(token_string(str, strlen(str)), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string(expected, strlen(expected))) == 0);
+
+    ctx.tmp_str = end_stack;
+    result = func_upper(token_string(expected, strlen(expected)), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string(expected, strlen(expected))) == 0);
+
+    ctx.tmp_str = end_stack;
+    result = func_upper(token_error(YY_ERROR_VALUE), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+}
+
+void test_func_lower(void)
+{
+    yy_token_t data[64] = {0};
+    yy_stack_t stack = {.data = data, .reserved = sizeof(data)/sizeof(data[0]), .len = 0};
+    char *end_stack = (char *) &stack.data[stack.reserved];
+    yy_eval_ctx_t ctx = {.stack = &stack, .tmp_str = end_stack};
+    yy_token_t result = {0};
+    const char str[] = ",AbC...\\T...XyZ_";
+    const char expected[] = ",abc...\\t...xyz_";
+
+    ctx.tmp_str = end_stack;
+    result = func_lower(token_string(str, strlen(str)), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string(expected, strlen(expected))) == 0);
+
+    ctx.tmp_str = end_stack;
+    result = func_lower(token_string(expected, strlen(expected)), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string(expected, strlen(expected))) == 0);
+
+    ctx.tmp_str = end_stack;
+    result = func_lower(token_error(YY_ERROR_VALUE), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+}
+
+void test_func_trim(void)
+{
+    yy_token_t data[64] = {0};
+    yy_stack_t stack = {.data = data, .reserved = sizeof(data)/sizeof(data[0]), .len = 0};
+    char *end_stack = (char *) &stack.data[stack.reserved];
+    yy_eval_ctx_t ctx = {.stack = &stack, .tmp_str = end_stack};
+    yy_token_t result = {0};
+    const char str[] = " \n\r\t\f\v  abc  \n\r\t\f\v ";
+    const char expected[] = "abc";
+
+    ctx.tmp_str = end_stack;
+    result = func_trim(token_string(str, strlen(str)), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string(expected, strlen(expected))) == 0);
+
+    ctx.tmp_str = end_stack;
+    result = func_trim(token_string(expected, strlen(expected)), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string(expected, strlen(expected))) == 0);
+
+    ctx.tmp_str = end_stack;
+    result = func_trim(token_error(YY_ERROR_VALUE), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+}
+
+void test_func_concat(void)
+{
+    yy_token_t data[64] = {0};
+    yy_stack_t stack = {.data = data, .reserved = sizeof(data)/sizeof(data[0]), .len = 0};
+    char *end_stack = (char *) &stack.data[stack.reserved];
+    yy_eval_ctx_t ctx = {.stack = &stack, .tmp_str = end_stack};
+    yy_token_t result = {0};
+
+    ctx.tmp_str = end_stack;
+    result = func_concat(token_string("abc", 3), token_string("def", 3), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string("abcdef", 6)) == 0);
+
+    ctx.tmp_str = end_stack;
+    result = func_concat(token_string("abc", 3), token_string("", 0), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string("abc", 3)) == 0);
+
+    ctx.tmp_str = end_stack;
+    result = func_concat(token_string("", 0), token_string("def", 3), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_STRING);
+    TEST_CHECK(str_cmp(result.str_val, make_string("def", 3)) == 0);
+
+    ctx.tmp_str = end_stack;
+    result = func_concat(token_error(YY_ERROR_VALUE), token_string("def", 3), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+
+    ctx.tmp_str = end_stack;
+    result = func_concat(token_string("abc", 3), token_error(YY_ERROR_VALUE), &ctx);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+}
+
 void test_funcs(void)
 {
     test_func_now();
@@ -1761,23 +1952,23 @@ void test_funcs(void)
     test_func_ceil();
     test_func_abs();
 
-    // test_func_str();
-    // test_func_unescape();
-    // test_func_upper()
-    // test_func_lower()
-    // test_func_trim()
-    // test_func_concat()
-    // test_func_substr()
-    // test_func_replace()
+    test_func_str();
     test_func_length();
     test_func_find();
+    test_func_unescape();
+    test_func_upper();
+    test_func_lower();
+    test_func_trim();
+    test_func_concat();
+    // test_func_substr()
+    // test_func_replace()
 
     test_func_min();
     test_func_max();
     // test_func_clamp();
-    // test_func_iserror();
     // test_func_ifelse();
 
+    // test_func_iserror();
     // test_func_not();
     // test_func_lt();
     // test_func_le();

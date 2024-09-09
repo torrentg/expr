@@ -3034,10 +3034,7 @@ static uint32_t temp_avail_bytes(yy_eval_ctx_t *ctx) {
  */
 static void free_str(yy_eval_ctx_t *ctx, yy_str_t *str)
 {
-    if (!ctx) // some tests call func_xxx() with no context
-        return;
-
-    assert(ctx->stack && ctx->tmp_str);
+    assert(ctx && ctx->stack && ctx->tmp_str);
     assert((char *) &ctx->stack->data[ctx->stack->len] <= ctx->tmp_str);
     assert(ctx->tmp_str <= (char *) &ctx->stack->data[ctx->stack->reserved]);
 
@@ -3064,10 +3061,7 @@ static void free_str(yy_eval_ctx_t *ctx, yy_str_t *str)
  */
 static bool alloc_str(yy_eval_ctx_t *ctx, uint32_t size, yy_str_t *ret)
 {
-    if (!ctx)
-        return false;
-
-    assert(ctx->stack && ctx->tmp_str);
+    assert(ctx && ctx->stack && ctx->tmp_str);
     assert((char *) &ctx->stack->data[ctx->stack->len] <= ctx->tmp_str);
     assert(ctx->tmp_str <= (char *) &ctx->stack->data[ctx->stack->reserved]);
 
@@ -3092,10 +3086,7 @@ static bool alloc_str(yy_eval_ctx_t *ctx, uint32_t size, yy_str_t *ret)
  */
 static bool duplicate_str(yy_eval_ctx_t *ctx, yy_str_t str, yy_str_t *ret)
 {
-    if (!ctx)
-        return false;
-
-    assert(ctx->stack && ctx->tmp_str);
+    assert(ctx && ctx->stack && ctx->tmp_str);
     assert((char *) &ctx->stack->data[ctx->stack->len] <= ctx->tmp_str);
     assert(ctx->tmp_str <= (char *) &ctx->stack->data[ctx->stack->reserved]);
 
@@ -3125,7 +3116,12 @@ static yy_token_t func_str(yy_token_t x, yy_eval_ctx_t *ctx)
         yy_str_t ret = {0};
         char buf[128] = {0};
 
-        snprintf(buf, sizeof(buf), "%lf", x.number_val);
+        if (isinf(x.number_val))
+            snprintf(buf, sizeof(buf), "%sInf", (isinf(x.number_val) < 0 ? "-" : ""));
+        else if (isnan(x.number_val))
+            snprintf(buf, sizeof(buf), "NaN");
+        else
+            snprintf(buf, sizeof(buf), "%g", x.number_val);
 
         if (!duplicate_str(ctx, make_string(buf, strlen(buf)), &ret))
             return token_error(YY_ERROR_MEM);
@@ -3310,10 +3306,9 @@ static yy_token_t func_unescape(yy_token_t str, yy_eval_ctx_t *ctx)
     char *new_ptr = NULL;
 
     // count escaped chars
-    for (uint32_t i = 0; i < len - 1; i++, ++ptr) {
+    for (uint32_t i = 0; i < len - 1; i++) {
         if (ptr[i] == '\\' && (ptr[i+1] == '\\' || ptr[i+1] == '"' || ptr[i+1] == 't' || ptr[i+1] == 'n')) {
             new_len--;
-            ptr++;
             i++;
         }
     }
