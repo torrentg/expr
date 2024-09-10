@@ -54,13 +54,13 @@ typedef enum yy_token_e {
 
 typedef enum yy_error_e {
     YY_OK,                          //!< No errors.
-    YY_ERROR,                       //!< Generic error (ex. given stack is NULL).
+    YY_ERROR_VALUE,                 //!< Invalid value (ex: variable contains unexpected type).
     YY_ERROR_REF,                   //!< Variable not found (error returned by resolve).
+    YY_ERROR_SYNTAX,                //!< Syntax error (ex. unexpected parenthesis, malformated number, etc).
     YY_ERROR_CREF,                  //!< Circular reference (error returned by resolve).
     YY_ERROR_MEM,                   //!< Not enough memory (try to increase the stack size).
     YY_ERROR_EVAL,                  //!< Evaluation error (ex. corrupted stack).
-    YY_ERROR_VALUE,                 //!< Invalid value (ex: variable contains unexpected type).
-    YY_ERROR_SYNTAX,                //!< Syntax error (ex. unexpected parenthesis, malformated number, etc).
+    YY_ERROR,                       //!< Generic error (ex. given stack is NULL).
 } yy_error_e;
 
 typedef struct PACKED yy_str_t {
@@ -164,6 +164,8 @@ yy_token_t yy_eval_stack(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*
  * expressions.
  * 
  * Caution, strings and datetimes surrounded by double-quote are reported as error.
+ * 
+ * Caution, in the generic case, yy_parse(), the string type acts like a catcher.
  * 
  * Features:
  *   - number: parse JSON-format numbers (RFC-7159).

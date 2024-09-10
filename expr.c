@@ -87,12 +87,13 @@ SOFTWARE.
     #define M_PI    3.14159265358979323846
 #endif
 
-#define make_string(ptr_, len_)  (yy_str_t){.ptr = (ptr_), .len = (uint32_t)(len_)}
-#define token_error(err_)        (yy_token_t){ .error = (err_)                    , .type = YY_TOKEN_ERROR    }
-#define token_bool(val_)         (yy_token_t){ .bool_val = (val_)                 , .type = YY_TOKEN_BOOL     }
-#define token_number(val_)       (yy_token_t){ .number_val = (val_)               , .type = YY_TOKEN_NUMBER   }
-#define token_datetime(val_)     (yy_token_t){ .datetime_val = (val_)             , .type = YY_TOKEN_DATETIME }
-#define token_string(ptr_, len_) (yy_token_t){ .str_val = make_string(ptr_, len_) , .type = YY_TOKEN_STRING   }
+#define make_string(ptr_, len_)    (yy_str_t){.ptr = (ptr_), .len = (uint32_t)(len_)}
+#define token_error(err_)          (yy_token_t){ .error = (err_)                    , .type = YY_TOKEN_ERROR    }
+#define token_bool(val_)           (yy_token_t){ .bool_val = (val_)                 , .type = YY_TOKEN_BOOL     }
+#define token_number(val_)         (yy_token_t){ .number_val = (val_)               , .type = YY_TOKEN_NUMBER   }
+#define token_datetime(val_)       (yy_token_t){ .datetime_val = (val_)             , .type = YY_TOKEN_DATETIME }
+#define token_string(ptr_, len_)   (yy_token_t){ .str_val = make_string(ptr_, len_) , .type = YY_TOKEN_STRING   }
+#define token_variable(ptr_, len_) (yy_token_t){ .str_val = make_string(ptr_, len_) , .type = YY_TOKEN_VARIABLE }
 
 typedef enum yy_symbol_e
 {
@@ -505,7 +506,7 @@ static int get_datepart(const yy_str_t *str)
  * @return Pointer to first non-space char or the end of the string.
  */
 INLINE
-const char * skip_spaces(const char *begin, const char *end)
+static const char * skip_spaces(const char *begin, const char *end)
 {
     assert(begin && end && begin <= end);
 
@@ -1807,6 +1808,7 @@ static yy_token_e parse_expr_generic(yy_parser_t *parser, bool check_bool)
 
     yy_parser_t orig_parser = *parser;
     yy_stack_t orig_stack = *parser->stack;
+    yy_error_e error = YY_OK;
 
     for (size_t i = (check_bool ? 0 : 1); i < (sizeof(types)/sizeof(types[0])); i++)
     {
@@ -1815,12 +1817,14 @@ static yy_token_e parse_expr_generic(yy_parser_t *parser, bool check_bool)
         if (parser->error == YY_OK)
             return types[i];
 
+        error = MAX(error, parser->error);
+
         // restore state
         *parser = orig_parser;
         *parser->stack = orig_stack;
     }
 
-    parser->error = YY_ERROR_SYNTAX;
+    parser->error = error;
     return YY_TOKEN_ERROR;
 }
 
@@ -1850,7 +1854,7 @@ static void parse_term_bool(yy_parser_t *parser)
             expect(parser, YY_SYMBOL_PAREN_LEFT);
             parse_expr_string(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
-            break;
+            return;
         case YY_SYMBOL_NOT:
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
@@ -2090,11 +2094,6 @@ static void parse_expr_datetime(yy_parser_t *parser)
     parse_term_datetime(parser);
 }
 
-/**
- * Implements a recursive descent parser for numeric expressions.
- * 
- * See grammar in the project doc.
- */
 yy_error_e yy_compile_number(const char *begin, const char *end, yy_stack_t *stack, const char **err)
 {
     if (!begin || !end || begin > end || !stack || !stack->data)
@@ -2112,11 +2111,6 @@ yy_error_e yy_compile_number(const char *begin, const char *end, yy_stack_t *sta
     return parser.error;
 }
 
-/**
- * Implements a recursive descent parser for datetime expressions.
- * 
- * See grammar in the project doc.
- */
 yy_error_e yy_compile_datetime(const char *begin, const char *end, yy_stack_t *stack, const char **err)
 {
     if (!begin || !end || begin > end || !stack || !stack->data)
@@ -2134,11 +2128,6 @@ yy_error_e yy_compile_datetime(const char *begin, const char *end, yy_stack_t *s
     return parser.error;
 }
 
-/**
- * Implements a recursive descent parser for string expressions.
- * 
- * See grammar in the project doc.
- */
 yy_error_e yy_compile_string(const char *begin, const char *end, yy_stack_t *stack, const char **err)
 {
     if (!begin || !end || begin > end || !stack || !stack->data)
@@ -2156,11 +2145,6 @@ yy_error_e yy_compile_string(const char *begin, const char *end, yy_stack_t *sta
     return parser.error;
 }
 
-/**
- * Implements a recursive descent parser for string expressions.
- * 
- * See grammar in the project doc.
- */
 yy_error_e yy_compile_bool(const char *begin, const char *end, yy_stack_t *stack, const char **err)
 {
     if (!begin || !end || begin > end || !stack || !stack->data)
@@ -2171,6 +2155,35 @@ yy_error_e yy_compile_bool(const char *begin, const char *end, yy_stack_t *stack
     init_parser(&parser, begin, end, stack);
     parse_expr_bool(&parser);
     finalize(&parser);
+
+    if (err && parser.error != YY_OK)
+        *err = parser.curr;
+
+    return parser.error;
+}
+
+yy_error_e yy_compile(const char *begin, const char *end, yy_stack_t *stack, const char **err)
+{
+    if (!begin || !end || begin > end || !stack || !stack->data)
+        return YY_ERROR;
+
+    yy_parser_t parser;
+    yy_token_e rc = YY_TOKEN_NULL;
+
+    init_parser(&parser, begin, end, stack);
+    rc = parse_expr_generic(&parser, true);
+
+    switch (rc)
+    {
+        case YY_TOKEN_BOOL:
+        case YY_TOKEN_NUMBER:
+        case YY_TOKEN_DATETIME:
+        case YY_TOKEN_STRING:
+            finalize(&parser);
+            break;
+        default:
+            break;
+    }
 
     if (err && parser.error != YY_OK)
         *err = parser.curr;
@@ -2373,6 +2386,19 @@ yy_token_t yy_eval_string(const char *begin, const char *end, yy_stack_t *stack,
 yy_token_t yy_eval_bool(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data)
 {
     yy_error_e rc = yy_compile_bool(begin, end, stack, NULL);
+
+    if (rc != YY_OK)
+        return token_error(rc);
+
+    uint32_t reserved = stack->reserved - stack->len;
+    yy_stack_t aux = {.data = stack->data + stack->len, .reserved = reserved, .len = 0};
+
+    return yy_eval_stack(stack, &aux, resolve, data);
+}
+
+yy_token_t yy_eval(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data)
+{
+    yy_error_e rc = yy_compile(begin, end, stack, NULL);
 
     if (rc != YY_OK)
         return token_error(rc);
@@ -2827,6 +2853,28 @@ DATETIME_ERROR:
     return token_error(YY_ERROR_VALUE);
 }
 
+yy_token_t yy_parse(const char *begin, const char *end)
+{
+    if (!begin || !end || begin >= end)
+        return token_error(YY_ERROR);
+
+    yy_token_t ret = {0};
+
+    if ((ret = yy_parse_number(begin, end)).type == YY_TOKEN_NUMBER)
+        return ret;
+
+    if ((ret = yy_parse_bool(begin, end)).type == YY_TOKEN_BOOL)
+        return ret;
+
+    if ((ret = yy_parse_datetime(begin, end)).type == YY_TOKEN_DATETIME)
+        return ret;
+
+    if ((ret = yy_parse_string(begin, end)).type == YY_TOKEN_STRING)
+        return ret;
+
+    return token_error(YY_ERROR_SYNTAX);
+}
+
 // ==================================================
 // Every func_xxx() receiving an YY_TYPE_STRING has to
 // manage the aux memory (yes, it's weird).
@@ -2907,6 +2955,9 @@ static yy_token_t func_dateset(yy_token_t date, yy_token_t value, yy_token_t par
     if (part.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
+    if (value.number_val < 0.0)
+        return token_error(YY_ERROR_VALUE);
+
     time_t time = (time_t)(date.datetime_val / 1000UL);
     long ms = (long)(date.datetime_val % 1000);
     int val = (int) value.number_val;
@@ -2925,10 +2976,6 @@ static yy_token_t func_dateset(yy_token_t date, yy_token_t value, yy_token_t par
         case 6: 
             stm.tm_sec += val / 1000;
             ms = val % 1000;
-            if (ms < 0) {
-                stm.tm_sec--;
-                ms += 1000;
-            }
             break;
         default: 
             return token_error(YY_ERROR_VALUE);
@@ -3354,6 +3401,9 @@ static uint32_t str_count_ocurrences(const yy_str_t *str, const yy_str_t *substr
     const char *ptr = str->ptr;
     const char *aux = NULL;
 
+    if (!str->len || !substr->len)
+        return 0;
+
     while ((aux = (char *) memmem(ptr, len, substr->ptr, substr->len)) != NULL) {
         len -= (aux - ptr) + substr->len;
         ptr = aux + substr->len;
@@ -3369,6 +3419,8 @@ static void str_replace(const yy_str_t str, const yy_str_t old_substr, const yy_
     const char *src = str.ptr;
     const char *aux = NULL;
     char *dest = (char *) ret->ptr;
+
+    assert(old_substr.len);
 
     while ((aux = (char *) memmem(src, len, old_substr.ptr, old_substr.len)) != NULL)
     {
