@@ -67,6 +67,7 @@ const char * symbol_to_str(yy_symbol_e type)
         case YY_SYMBOL_TRUNC: return "TRUNC";
         case YY_SYMBOL_CEIL: return "CEIL";
         case YY_SYMBOL_FLOOR: return "FLOOR";
+        case YY_SYMBOL_RANDOM: return "RANDOM";
         case YY_SYMBOL_NOW: return "NOW";
         case YY_SYMBOL_DATEPART: return "DATEPART";
         case YY_SYMBOL_DATEADD: return "DATEADD";
@@ -1022,6 +1023,7 @@ void test_read_symbol_ok(void)
     check_next_ok("not(${b})", YY_SYMBOL_NOT, &symbol);
     check_next_ok("str(now())", YY_SYMBOL_STR, &symbol);
     check_next_ok("variable(str(now()))", YY_SYMBOL_VARIABLE_FUNC, &symbol);
+    check_next_ok("random(1,5)", YY_SYMBOL_RANDOM, &symbol);
     check_next_ok("< 5", YY_SYMBOL_LESS_OP, &symbol);
     check_next_ok("> 42", YY_SYMBOL_GREAT_OP, &symbol);
 }
@@ -2817,6 +2819,29 @@ void test_func_ifelse(void)
     TEST_CHECK(result.type == YY_TOKEN_ERROR);
 }
 
+void test_func_random(void)
+{
+    yy_token_t result = {0};
+
+    srand(1234567);
+
+    for (int i = 0; i < 100; i++)
+    {
+        result = func_random(token_number(10), token_number(20), NULL);
+        TEST_CHECK(result.type == YY_TOKEN_NUMBER);
+        TEST_CHECK(10 <= result.number_val && result.number_val < 20);
+    }
+
+    result = func_random(token_number(2), token_number(1), NULL);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+
+    result = func_random(token_bool(true), token_number(2), NULL);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+
+    result = func_random(token_number(1), token_bool(true), NULL);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+}
+
 void test_funcs(void)
 {
     test_func_now();
@@ -2844,6 +2869,7 @@ void test_funcs(void)
     test_func_trunc();
     test_func_floor();
     test_func_ceil();
+    test_func_random();
     test_func_abs();
     test_func_str();
     test_func_length();

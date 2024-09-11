@@ -230,6 +230,8 @@ int main(int argc, char *argv[])
     UNUSED(argc);
     UNUSED(argv);
 
+    srand(time(NULL));
+
     if (isatty(STDIN_FILENO))
         interactive_mode();
     else

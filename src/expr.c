@@ -142,6 +142,7 @@ typedef enum yy_symbol_e
     YY_SYMBOL_TRUNC,                //!< trunc
     YY_SYMBOL_CEIL,                 //!< ceil
     YY_SYMBOL_FLOOR,                //!< floor
+    YY_SYMBOL_RANDOM,               //!< random
     YY_SYMBOL_CLAMP,                //!< clamp
     YY_SYMBOL_NOW,                  //!< now
     YY_SYMBOL_NOT,                  //!< not
@@ -256,6 +257,7 @@ static yy_token_t func_tan(yy_token_t x);
 static yy_token_t func_exp(yy_token_t x);
 static yy_token_t func_log(yy_token_t x);
 static yy_token_t func_sqrt(yy_token_t x);
+static yy_token_t func_random(yy_token_t x, yy_token_t y, yy_eval_ctx_t *ctx);
 static yy_token_t func_pow(yy_token_t x, yy_token_t y);
 static yy_token_t func_minus(yy_token_t x);
 static yy_token_t func_ident(yy_token_t x);
@@ -317,6 +319,7 @@ static const yy_identifier_t identifiers[] =
     { "not",       YY_SYMBOL_NOT           },
     { "now",       YY_SYMBOL_NOW           },
     { "pow",       YY_SYMBOL_POWER         },
+    { "random",    YY_SYMBOL_RANDOM        },
     { "replace",   YY_SYMBOL_REPLACE       },
     { "sin",       YY_SYMBOL_SIN           },
     { "sqrt",      YY_SYMBOL_SQRT          },
@@ -387,6 +390,7 @@ static const yy_token_t symbol_to_token[] =
     [YY_SYMBOL_CEIL]            = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_ceil       , 1) },
     [YY_SYMBOL_FLOOR]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_floor      , 1) },
     [YY_SYMBOL_CLAMP]           = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_clamp      , 3) },
+    [YY_SYMBOL_RANDOM]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_random     , 2, .is_not_pure = true) },
     [YY_SYMBOL_NOW]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_now        , 0, .is_not_pure = true) },
     [YY_SYMBOL_DATEPART]        = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_datepart   , 2) },
     [YY_SYMBOL_DATEADD]         = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_dateadd    , 3) },
@@ -1548,6 +1552,7 @@ static void parse_term_number(yy_parser_t *parser)
         case YY_SYMBOL_MIN:
         case YY_SYMBOL_MODULO:
         case YY_SYMBOL_POWER:
+        case YY_SYMBOL_RANDOM:
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
             parse_expr_number(parser);
@@ -3640,6 +3645,21 @@ static yy_token_t func_ident(yy_token_t x)
         return token_error(YY_ERROR_VALUE);
 
     return x;
+}
+
+static yy_token_t func_random(yy_token_t x, yy_token_t y, yy_eval_ctx_t *ctx)
+{
+    UNUSED(ctx);
+
+    if (x.type != YY_TOKEN_NUMBER || y.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    if (x.number_val > y.number_val)
+        return token_error(YY_ERROR_VALUE);
+
+    double u = (double) rand() / ((double) (RAND_MAX) + 1);
+
+    return token_number(x.number_val + u * (y.number_val - x.number_val));
 }
 
 static yy_token_t func_addition(yy_token_t x, yy_token_t y)

@@ -90,6 +90,7 @@ numConst    = <see list below>
 | number   | `^`, `pow`   | (numExpr, numExpr)            | Power                                    |
 | number   | `min`        | (numExpr, numExpr)            | Returns the smaller of two given values  |
 | number   | `max`        | (numExpr, numExpr)            | Returns the larger of two given values   |
+| number   | `random`     | (numExpr, numExpr)            | Returns a random value in range [min,max)|
 | number   | `clamp`      | (numExpr, numExpr, numExpr)   | Coerce a value to be in a fixed range    |
 | number   | `length`     | (strExpr)                     | Length of a string                       |
 | number   | `find`       | (strExpr, strExpr, numExpr)   | Locate a text string into another text   |
