@@ -108,11 +108,11 @@ typedef struct yy_stack_t {
  * @return Result as token, 
  *         on error type=YY_TOKEN_ERROR and error contains the error detail.
  */
-yy_token_t yy_eval_number(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
-yy_token_t yy_eval_datetime(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
-yy_token_t yy_eval_string(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
-yy_token_t yy_eval_bool(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
-yy_token_t yy_eval(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
+yy_token_t yy_eval_number(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t var, void *data), void *data);
+yy_token_t yy_eval_datetime(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t var, void *data), void *data);
+yy_token_t yy_eval_string(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t var, void *data), void *data);
+yy_token_t yy_eval_bool(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t var, void *data), void *data);
+yy_token_t yy_eval(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t var, void *data), void *data);
 
 /**
  * Compile an expression.
@@ -150,7 +150,7 @@ yy_error_e yy_compile(const char *begin, const char *end, yy_stack_t *stack, con
  * @return Result as token, 
  *         on error type=YY_TOKEN_ERROR and error contains the error detail.
  */
-yy_token_t yy_eval_stack(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data);
+yy_token_t yy_eval_stack(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolve)(yy_str_t var, void *data), void *data);
 
 /**
  * Parse a single value.

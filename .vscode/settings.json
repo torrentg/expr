@@ -3,7 +3,10 @@
     "stdbool.h": "c",
     "chrono": "c",
     "stdio.h": "c",
-    "charconv": "c"
+    "charconv": "c",
+    "string.h": "c",
+    "math.h": "c",
+    "linenoise.h": "c"
   },
   "makefile.configureOnOpen": false
 }

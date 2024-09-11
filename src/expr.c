@@ -222,11 +222,12 @@ static const int days_in_month[] = {31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 
 // Forward declarations
 static bool is_temp_ptr(yy_eval_ctx_t *ctx, const char *ptr);
 static void free_str(yy_eval_ctx_t *ctx, yy_str_t *str);
-static yy_token_e parse_expr_generic(yy_parser_t *parser, bool check_bool);
+static yy_token_e parse_expr_generic(yy_parser_t *parser, bool check_bool, bool do_finalize);
 static void parse_expr_datetime(yy_parser_t *parser);
 static void parse_expr_number(yy_parser_t *parser);
 static void parse_expr_string(yy_parser_t *parser);
 static void parse_expr_bool(yy_parser_t *parser);
+static void parse_datepart(yy_parser_t *parser);
 
 // Functions in expressions
 static yy_token_t func_now(yy_eval_ctx_t *ctx);
@@ -1613,6 +1614,14 @@ static void parse_term_number(yy_parser_t *parser)
             parse_expr_number(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
+        case YY_SYMBOL_DATEPART:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_datetime(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_datepart(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
         default:
             parser->error = YY_ERROR_SYNTAX;
     }
@@ -1690,7 +1699,7 @@ static void parse_term_string(yy_parser_t *parser)
         case YY_SYMBOL_STR:
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
-            parse_expr_generic(parser, true);
+            parse_expr_generic(parser, true, false);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
             break;
         case YY_SYMBOL_MIN:
@@ -1792,6 +1801,7 @@ static void parse_expr_by_type(yy_parser_t *parser, yy_token_e type)
  * 
  * @param[in] parser Parser to update.
  * @param[in] check_bool Checks bool type (to avoid a non-ending loop parsing a bool).
+ * @param[in] do_finalize Flag to finalize.
  * 
  * @return YY_TOKEN_BOOL - Parsed bool expression,
  *         YY_TOKEN_NUMBER - Parsed number expression,
@@ -1799,7 +1809,7 @@ static void parse_expr_by_type(yy_parser_t *parser, yy_token_e type)
  *         YY_TOKEN_STRING - Parsed string expression,
  *         YY_TOKEN_ERROR - Error parsing expression (see parser.error).
  */
-static yy_token_e parse_expr_generic(yy_parser_t *parser, bool check_bool)
+static yy_token_e parse_expr_generic(yy_parser_t *parser, bool check_bool, bool do_finalize)
 {
     static const yy_token_e types[] = {YY_TOKEN_BOOL, YY_TOKEN_NUMBER, YY_TOKEN_DATETIME, YY_TOKEN_STRING};
 
@@ -1808,16 +1818,23 @@ static yy_token_e parse_expr_generic(yy_parser_t *parser, bool check_bool)
 
     yy_parser_t orig_parser = *parser;
     yy_stack_t orig_stack = *parser->stack;
+    const char *curr = parser->curr;
     yy_error_e error = YY_OK;
 
     for (size_t i = (check_bool ? 0 : 1); i < (sizeof(types)/sizeof(types[0])); i++)
     {
         parse_expr_by_type(parser, types[i]);
 
+        if (do_finalize)
+            finalize(parser);
+
         if (parser->error == YY_OK)
             return types[i];
 
-        error = MAX(error, parser->error);
+        if (error < parser->error) {
+            error = parser->error;
+            curr = parser->curr;
+        }
 
         // restore state
         *parser = orig_parser;
@@ -1825,6 +1842,8 @@ static yy_token_e parse_expr_generic(yy_parser_t *parser, bool check_bool)
     }
 
     parser->error = error;
+    parser->curr = curr;
+
     return YY_TOKEN_ERROR;
 }
 
@@ -1842,62 +1861,79 @@ static void parse_term_bool(yy_parser_t *parser)
     if (parser->error != YY_OK)
         return;
 
+    yy_parser_t orig_parser = *parser;
+    yy_stack_t orig_stack = *parser->stack;
+
+    yy_token_e type = parse_expr_generic(parser, false, false);
+
+    if (type != YY_TOKEN_ERROR)
+    {
+        switch (parser->curr_symbol.type)
+        {
+            case YY_SYMBOL_LESS_OP:
+            case YY_SYMBOL_LESS_EQUALS_OP:
+            case YY_SYMBOL_GREAT_OP:
+            case YY_SYMBOL_GREAT_EQUALS_OP:
+            case YY_SYMBOL_EQUALS_OP:
+            case YY_SYMBOL_DISTINCT_OP:
+                consume(parser);
+                parse_expr_by_type(parser, type);
+                return;
+            default:
+                break;
+        }
+    }
+
+    // restore state
+    *parser = orig_parser;
+    *parser->stack = orig_stack;
+
     switch (parser->curr_symbol.type)
     {
         case YY_SYMBOL_TRUE:
         case YY_SYMBOL_FALSE:
         case YY_SYMBOL_VARIABLE:
             consume(parser);
-            return;
+            break;
         case YY_SYMBOL_VARIABLE_FUNC:
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
             parse_expr_string(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
-            return;
+            break;
         case YY_SYMBOL_NOT:
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
             parse_expr_bool(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
-            return;
+            break;
         case YY_SYMBOL_ISINF:
         case YY_SYMBOL_ISNAN:
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
             parse_expr_number(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
-            return;
+            break;
         case YY_SYMBOL_ISERROR:
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
-            parse_expr_generic(parser, true);
+            parse_expr_generic(parser, true, false);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
-            return;
+            break;
+        case YY_SYMBOL_IFELSE:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_bool(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_bool(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_expr_bool(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
         case YY_SYMBOL_PAREN_LEFT:
             consume(parser);
             parse_expr_bool(parser);
             expect(parser, YY_SYMBOL_PAREN_RIGHT);
-            return;
-        default:
-            break;
-    }
-
-    yy_token_e type = parse_expr_generic(parser, false);
-
-    if (type == YY_TOKEN_ERROR || parser->error)
-        return;
-
-    switch (parser->curr_symbol.type)
-    {
-        case YY_SYMBOL_LESS_OP:
-        case YY_SYMBOL_LESS_EQUALS_OP:
-        case YY_SYMBOL_GREAT_OP:
-        case YY_SYMBOL_GREAT_EQUALS_OP:
-        case YY_SYMBOL_EQUALS_OP:
-        case YY_SYMBOL_DISTINCT_OP:
-            consume(parser);
-            parse_expr_by_type(parser, type);
             break;
         default:
             parser->error = YY_ERROR_SYNTAX;
@@ -2168,22 +2204,9 @@ yy_error_e yy_compile(const char *begin, const char *end, yy_stack_t *stack, con
         return YY_ERROR;
 
     yy_parser_t parser;
-    yy_token_e rc = YY_TOKEN_NULL;
 
     init_parser(&parser, begin, end, stack);
-    rc = parse_expr_generic(&parser, true);
-
-    switch (rc)
-    {
-        case YY_TOKEN_BOOL:
-        case YY_TOKEN_NUMBER:
-        case YY_TOKEN_DATETIME:
-        case YY_TOKEN_STRING:
-            finalize(&parser);
-            break;
-        default:
-            break;
-    }
+    parse_expr_generic(&parser, true, true);
 
     if (err && parser.error != YY_OK)
         *err = parser.curr;
@@ -2247,7 +2270,7 @@ static yy_token_t eval_func(yy_func_t func, yy_eval_ctx_t *ctx)
     }
 }
 
-yy_token_t yy_eval_stack(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data)
+yy_token_t yy_eval_stack(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*resolve)(yy_str_t var, void *data), void *data)
 {
     if (!stack || !aux || !stack->data || !stack->len || !aux->data)
         return token_error(YY_ERROR);
@@ -2288,7 +2311,7 @@ yy_token_t yy_eval_stack(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*
                 if (!resolve)
                     return token_error(YY_ERROR_REF);
 
-                tmp = resolve(&stack->data[i].variable, data);
+                tmp = resolve(stack->data[i].variable, data);
                 if (tmp.type == YY_TOKEN_ERROR && is_blocking_error(tmp.error))
                     return tmp;
 
@@ -2344,7 +2367,7 @@ yy_token_t yy_eval_stack(const yy_stack_t *stack, yy_stack_t *aux, yy_token_t (*
     return aux->data[0];
 }
 
-yy_token_t yy_eval_number(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data)
+yy_token_t yy_eval_number(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t var, void *data), void *data)
 {
     yy_error_e rc = yy_compile_number(begin, end, stack, NULL);
 
@@ -2357,7 +2380,7 @@ yy_token_t yy_eval_number(const char *begin, const char *end, yy_stack_t *stack,
     return yy_eval_stack(stack, &aux, resolve, data);
 }
 
-yy_token_t yy_eval_datetime(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data)
+yy_token_t yy_eval_datetime(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t var, void *data), void *data)
 {
     yy_error_e rc = yy_compile_datetime(begin, end, stack, NULL);
 
@@ -2370,7 +2393,7 @@ yy_token_t yy_eval_datetime(const char *begin, const char *end, yy_stack_t *stac
     return yy_eval_stack(stack, &aux, resolve, data);
 }
 
-yy_token_t yy_eval_string(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data)
+yy_token_t yy_eval_string(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t var, void *data), void *data)
 {
     yy_error_e rc = yy_compile_string(begin, end, stack, NULL);
 
@@ -2383,7 +2406,7 @@ yy_token_t yy_eval_string(const char *begin, const char *end, yy_stack_t *stack,
     return yy_eval_stack(stack, &aux, resolve, data);
 }
 
-yy_token_t yy_eval_bool(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data)
+yy_token_t yy_eval_bool(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t var, void *data), void *data)
 {
     yy_error_e rc = yy_compile_bool(begin, end, stack, NULL);
 
@@ -2396,7 +2419,7 @@ yy_token_t yy_eval_bool(const char *begin, const char *end, yy_stack_t *stack, y
     return yy_eval_stack(stack, &aux, resolve, data);
 }
 
-yy_token_t yy_eval(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t *var, void *data), void *data)
+yy_token_t yy_eval(const char *begin, const char *end, yy_stack_t *stack, yy_token_t (*resolve)(yy_str_t var, void *data), void *data)
 {
     yy_error_e rc = yy_compile(begin, end, stack, NULL);
 
@@ -3914,7 +3937,7 @@ static yy_token_t func_ifelse(yy_token_t cond, yy_token_t x, yy_token_t y)
     if (x.type != y.type)
         return token_error(YY_ERROR_VALUE);
 
-    if (x.type != YY_TOKEN_NUMBER && x.type != YY_TOKEN_DATETIME && x.type != YY_TOKEN_STRING)
+    if (x.type != YY_TOKEN_NUMBER && x.type != YY_TOKEN_DATETIME && x.type != YY_TOKEN_STRING && x.type != YY_TOKEN_BOOL)
         return token_error(YY_ERROR_VALUE);
 
     return (cond.bool_val ? x : y);

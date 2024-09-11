@@ -3,7 +3,7 @@
         {
             "name": "Linux",
             "includePath": [
-                "${workspaceFolder}"
+                "${workspaceFolder}/src"
             ],
             "compilerPath": "/usr/lib64/ccache/gcc",
             "cStandard": "gnu11",

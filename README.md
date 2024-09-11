@@ -155,16 +155,16 @@ strFunc     = <see list below>
 
 ```txt
 boolExpr     = boolTerm (boolInfixOp boolTerm)*
-boolTerm     = boolean | 
-               varExpr | 
-               boolFunc | 
-               '(' boolExpr ')' | 
-               (numExpr | timeExpr | strExpr) <  (numExpr | timeExpr | strExpr) |
+boolTerm     = (numExpr | timeExpr | strExpr) <  (numExpr | timeExpr | strExpr) |
                (numExpr | timeExpr | strExpr) <= (numExpr | timeExpr | strExpr) |
                (numExpr | timeExpr | strExpr) >  (numExpr | timeExpr | strExpr) |
                (numExpr | timeExpr | strExpr) >= (numExpr | timeExpr | strExpr) |
                (numExpr | timeExpr | strExpr) == (numExpr | timeExpr | strExpr) |
-               (numExpr | timeExpr | strExpr) != (numExpr | timeExpr | strExpr)
+               (numExpr | timeExpr | strExpr) != (numExpr | timeExpr | strExpr) |
+               boolean | 
+               varExpr |
+               boolFunc |
+               '(' boolExpr ')'
 boolInfixOp  = '&&' | '||' | '==' | '!='
 boolFunc     = <see list below>
 ```
@@ -183,6 +183,7 @@ boolFunc     = <see list below>
 | boolean  | `isinf`      | (numExpr)                     | Checks if a number is &plusmn; infinite  |
 | boolean  | `isnan`      | (numExpr)                     | Checks if a number is a NaN              |
 | boolean  | `iserror`    | (numExpr) <br/> (timeExpr) <br/> (boolExpr) <br/> (strExpr) | Checks if there is an error              |
+| boolean  | `ifelse`     | (boolExpr, boolExpr, boolExpr)| Conditional value                        |
 
 ## Grammar for variable expressions
 

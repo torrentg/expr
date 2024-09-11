@@ -97,10 +97,14 @@ const char * error_to_str(yy_error_e err)
 {
     switch (err)
     {
+        case YY_OK: return "#OK";
+        case YY_ERROR: return "#ERROR";
         case YY_ERROR_REF: return "#REF";
         case YY_ERROR_MEM: return "#MEM";
         case YY_ERROR_EVAL: return "#EVAL";
+        case YY_ERROR_CREF: return "#CREF";
         case YY_ERROR_VALUE: return "#VALUE";
+        case YY_ERROR_SYNTAX: return "#SYNTAX";
         default: return "#???";
     }
 }
@@ -161,17 +165,17 @@ void print_stack(const yy_stack_t *stack)
     print_token(result);
 }
 
-yy_token_t resolve(yy_str_t *var, void *data)
+yy_token_t resolve(yy_str_t var, void *data)
 {
     UNUSED(data);
 
-    if (!var)
+    if (!var.ptr)
         return token_error(YY_ERROR);
 
-    if (var->len != 1)
+    if (var.len != 1)
         return token_error(YY_ERROR_REF);
 
-    switch (var->ptr[0])
+    switch (var.ptr[0])
     {
         case 'a': return token_number(0);
         case 'b': return token_number(1);
@@ -1105,6 +1109,8 @@ void test_eval_number_ok(void)
     check_eval_number_ok("clamp(1, 5, 7)", 5);
     check_eval_number_ok("ifelse(1 < 4 && false, 5, 7)", 7);
     check_eval_number_ok("1 + cos(variable(\"a\"))", 2);
+    check_eval_number_ok("datepart(\"2024-09-10\", \"day\")", 10);
+    check_eval_number_ok("${c}^3", 8);
 }
 
 void test_eval_number_ko(void)
@@ -1349,6 +1355,10 @@ void test_eval_ok(void)
     check_eval_ok("substr(\"abcdef\", 2, 3)", YY_TOKEN_STRING);
     check_eval_ok("ifelse(\"abc\" == $s, 1, 2)", YY_TOKEN_NUMBER);
     check_eval_ok("ifelse(\"abc\" == $s, 1, 2) + 5 == 3", YY_TOKEN_BOOL);
+    check_eval_ok("${c}^3", YY_TOKEN_NUMBER);
+    check_eval_ok("ifelse(1 < 4, \"sensei\", \"opa\")", YY_TOKEN_STRING);
+    check_eval_ok("ifelse(${c}^2 == 4, true, false)", YY_TOKEN_BOOL);
+    check_eval_ok("$c^2 == 4", YY_TOKEN_BOOL);
 }
 
 void test_eval_ko(void)
@@ -2760,6 +2770,7 @@ void test_func_ifelse(void)
 {
     yy_token_t result = {0};
 
+    // number case
     result = func_ifelse(token_bool(true), token_number(1), token_number(2));
     TEST_CHECK(result.type == YY_TOKEN_NUMBER);
     TEST_CHECK(result.number_val == 1);
@@ -2768,6 +2779,7 @@ void test_func_ifelse(void)
     TEST_CHECK(result.type == YY_TOKEN_NUMBER);
     TEST_CHECK(result.number_val == 2);
 
+    // datetime case
     yy_token_t aux = make_datetime("2024-09-09");
 
     result = func_ifelse(token_bool(true), make_datetime("2024-09-09"), make_datetime("2024-09-10"));
@@ -2778,6 +2790,7 @@ void test_func_ifelse(void)
     TEST_CHECK(result.type == YY_TOKEN_DATETIME);
     TEST_CHECK(result.datetime_val == aux.datetime_val);
 
+    // string case
     result = func_ifelse(token_bool(true), token_string("abc", 3), token_string("xyz", 3));
     TEST_CHECK(result.type == YY_TOKEN_STRING);
     TEST_CHECK(str_cmp(result.str_val, make_string("abc", 3)) == 0);
@@ -2786,13 +2799,21 @@ void test_func_ifelse(void)
     TEST_CHECK(result.type == YY_TOKEN_STRING);
     TEST_CHECK(str_cmp(result.str_val, make_string("xyz", 3)) == 0);
 
+    // bool case
+    result = func_ifelse(token_bool(true), token_bool(true), token_bool(false));
+    TEST_CHECK(result.type == YY_TOKEN_BOOL);
+    TEST_CHECK(result.bool_val == true);
+
+    result = func_ifelse(token_bool(false), token_bool(true), token_bool(false));
+    TEST_CHECK(result.type == YY_TOKEN_BOOL);
+    TEST_CHECK(result.bool_val == false);
+
+    // error case (condition non boolean)
     result = func_ifelse(token_number(0), token_number(1), token_number(2));
     TEST_CHECK(result.type == YY_TOKEN_ERROR);
 
+    // error case (distinct return types)
     result = func_ifelse(token_bool(true), token_string("abc", 3), token_number(3));
-    TEST_CHECK(result.type == YY_TOKEN_ERROR);
-
-    result = func_ifelse(token_bool(true), token_bool(true), token_bool(false));
     TEST_CHECK(result.type == YY_TOKEN_ERROR);
 }
 

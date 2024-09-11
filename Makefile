@@ -3,6 +3,7 @@ LDFLAGS := -lm
 SRC_DIR := src
 TEST_DIR := test
 BUILD_DIR := build
+EXAMPLES_DIR := examples
 
 all: tests
 
@@ -13,6 +14,11 @@ $(BUILD_DIR):
 tests: $(BUILD_DIR)/tests $(BUILD_DIR)
 $(BUILD_DIR)/tests: $(SRC_DIR)/expr.h  $(SRC_DIR)/expr.c  $(TEST_DIR)/tests.c
 	$(CC) -g -O0 $(CFLAGS) -I$(SRC_DIR) -DRUNNING_ON_VALGRIND -o $@ $(TEST_DIR)/tests.c $(LDFLAGS)
+
+.PHONY: calc
+calc: $(BUILD_DIR)/calc $(BUILD_DIR)
+$(BUILD_DIR)/calc: $(SRC_DIR)/expr.h  $(SRC_DIR)/expr.c  $(EXAMPLES_DIR)/calc.c
+	$(CC) -g $(CFLAGS) -I$(SRC_DIR) -DRUNNING_ON_VALGRIND -o $@ $(EXAMPLES_DIR)/calc.c $(SRC_DIR)/expr.c $(EXAMPLES_DIR)/linenoise.c $(LDFLAGS)
 
 .PHONY: coverage
 coverage: $(BUILD_DIR)/tests-coverage $(BUILD_DIR)
