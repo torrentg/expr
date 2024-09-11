@@ -206,7 +206,7 @@ Expr implements the [standard](https://en.cppreference.com/w/c/language/operator
 
 | Precedence  | Type             | Symbols      | Associativity  |
 |:----------: | ---------------- | -------------| :------------: |
-|     1       | Grouping         | ()           | left-to-right  |
+|     1       | Grouping         | (, )         | left-to-right  |
 |     2       | Power            | ^            | left-to-right  |
 |     3       | Not, plus, minus | !, +, -      | right-to-left  |
 |     4       | Prod, div, mod   | *, /, %      | left-to-right  |
