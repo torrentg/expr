@@ -1,6 +1,6 @@
 # expr
 
-A simple expressions parser.
+An expression parser supporting multiple types.
 
 Features:
 
@@ -12,7 +12,20 @@ Features:
 ## Examples
 
 ```txt
-(1 + ifelse($x == "John", 3, 25)) * datepart(now(), "day")
+# Numerical calculations
+sin((-1 + 2) * PI)
+
+# Dates
+datetrunc(now(), "day")
+
+# Strings
+"hi " + upper("bob")  + trim("  !  ")
+
+# Conditionals
+ifelse(1 < 5 && length($alphabet) > 25, "case1", "case2")
+
+# Find the missing letter
+replace($alphabet, substr($alphabet, 25 - random(0, length($alphabet)), 1), "")
 ```
 
 ## Grammar for types

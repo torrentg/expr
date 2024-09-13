@@ -1,3 +1,36 @@
+# ------------------------------------------------
+# This is a list of expr formulas
+# 
+# Project info
+#   https://github.com/torrentg/expr
+#
+# Command line:
+#   calc < calc.txt
+#
+# File format:
+#  - 1 formula per line
+#  - empty lines are skiped
+#  - Lines starting with '#' are comments
+#  - Variable ${num} refers to the num-th formula 
+# ------------------------------------------------
+
+# find the missing letter
+"abcdefghijklmnopqrstuvwxyz"
+replace(${1}, substr(${1}, 25 - random(0,26), 1), "")
+${2}
+${2}
+${2}
+
+# reference to a variable defined later
+${7}
+"defined!!!"
+${6}
+
+# on evaluation, a reference has always same value
+trunc(random(1,100))
+${9} + ${9} == 2*${9}
+
 1 + 1
 cos(PI)
 ifelse(cos(${2}) > ${1}, "john", "bob")
+

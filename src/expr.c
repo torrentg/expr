@@ -284,7 +284,7 @@ static yy_token_t func_ifelse(yy_token_t cond, yy_token_t x, yy_token_t y);
 static yy_token_t func_variable(yy_token_t str);
 
 // Identifiers list (alphabetical order)
-static const yy_identifier_t identifiers[] =
+const yy_identifier_t yy_identifiers[] =
 {
     { "E",         YY_SYMBOL_CONST_E       },
     { "FALSE",     YY_SYMBOL_FALSE         },
@@ -332,9 +332,10 @@ static const yy_identifier_t identifiers[] =
     { "unescape",  YY_SYMBOL_UNESCAPE      },
     { "upper",     YY_SYMBOL_UPPER         },
     { "variable",  YY_SYMBOL_VARIABLE_FUNC },
+    { NULL,        YY_SYMBOL_END           },
 };
 
-#define NUM_IDENTIFIERS (sizeof(identifiers)/sizeof(identifiers[0]))
+#define NUM_IDENTIFIERS (sizeof(yy_identifiers)/sizeof(yy_identifiers[0]) - 1)
 
 #define make_func(func_, args_, ...) (yy_func_t){ .ptr = (void (*)(void)) func_, .num_args = args_, __VA_ARGS__ }
 
@@ -447,7 +448,7 @@ bool is_blocking_error(yy_error_e err)
 
 /**
  * Search the identifier matching the given string
- * using the binary search algo on the identifiers list.
+ * using the binary search algo on the yy_identifiers list.
  * 
  * @param[in] begin String to parse (without initial spaces).
  * @param[in] len Identifier length.
@@ -465,16 +466,16 @@ static const yy_identifier_t * get_identifier(const char *str, size_t len)
     {
         int i = imin + (imax-imin) / 2;
 
-        int c = *str - identifiers[i].str[0];
+        int c = *str - yy_identifiers[i].str[0];
 
         if (c == 0)
         {
-            c = strncmp(str, identifiers[i].str, len);
-            c = (c != 0 ? c : '\0' - identifiers[i].str[len]);
+            c = strncmp(str, yy_identifiers[i].str, len);
+            c = (c != 0 ? c : '\0' - yy_identifiers[i].str[len]);
         }
 
         if (c == 0)
-            return &identifiers[i];
+            return &yy_identifiers[i];
         else if (c > 0)
             imin = i + 1;
         else
@@ -878,9 +879,13 @@ VARIABLE_WITH_BRACES_CONT:
         return YY_ERROR_SYNTAX;
 
     switch (*ptr) {
-        case '{': return YY_ERROR_SYNTAX;
-        case '}': break;
-        default: goto VARIABLE_WITH_BRACES_CONT;
+        case '\0':
+        case '{':
+            return YY_ERROR_SYNTAX;
+        case '}':
+            break;
+        default:
+            goto VARIABLE_WITH_BRACES_CONT;
     }
 
     ++ptr;
@@ -1696,6 +1701,7 @@ static void parse_term_string(yy_parser_t *parser)
         case YY_SYMBOL_TRIM:
         case YY_SYMBOL_LOWER:
         case YY_SYMBOL_UPPER:
+        case YY_SYMBOL_UNESCAPE:
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
             parse_expr_string(parser);
@@ -1836,7 +1842,7 @@ static yy_token_e parse_expr_generic(yy_parser_t *parser, bool check_bool, bool 
         if (parser->error == YY_OK)
             return types[i];
 
-        if (error < parser->error) {
+        if (error < parser->error || (error == parser->error && curr < parser->curr)) {
             error = parser->error;
             curr = parser->curr;
         }
@@ -1866,6 +1872,8 @@ static void parse_term_bool(yy_parser_t *parser)
     if (parser->error != YY_OK)
         return;
 
+    yy_error_e error = YY_OK;
+    const char *curr = NULL;
     yy_parser_t orig_parser = *parser;
     yy_stack_t orig_stack = *parser->stack;
 
@@ -1888,6 +1896,10 @@ static void parse_term_bool(yy_parser_t *parser)
                 break;
         }
     }
+
+    // save error
+    error = parser->error;
+    curr = parser->curr;
 
     // restore state
     *parser = orig_parser;
@@ -1942,6 +1954,11 @@ static void parse_term_bool(yy_parser_t *parser)
             break;
         default:
             parser->error = YY_ERROR_SYNTAX;
+    }
+
+    if (parser->error && (error > parser->error || (error == parser->error && curr > parser->curr))) {
+        parser->error = error;
+        parser->curr = curr;
     }
 }
 
@@ -3970,12 +3987,18 @@ static yy_token_t func_clamp(yy_token_t x, yy_token_t vmin, yy_token_t vmax)
 
     if (x.type == YY_TOKEN_NUMBER)
     {
+        if (vmin.number_val > vmax.number_val)
+            return token_error(YY_ERROR_VALUE);
+
         double val = CLAMP(x.number_val, vmin.number_val, vmax.number_val);
         return token_number(val);
     }
 
     if (x.type == YY_TOKEN_DATETIME)
     {
+        if (vmin.datetime_val > vmax.datetime_val)
+            return token_error(YY_ERROR_VALUE);
+
         uint64_t val = CLAMP(x.datetime_val, vmin.datetime_val, vmax.datetime_val);
         return token_datetime(val);
     }

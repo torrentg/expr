@@ -1024,6 +1024,7 @@ void test_read_symbol_ok(void)
     check_next_ok("str(now())", YY_SYMBOL_STR, &symbol);
     check_next_ok("variable(str(now()))", YY_SYMBOL_VARIABLE_FUNC, &symbol);
     check_next_ok("random(1,5)", YY_SYMBOL_RANDOM, &symbol);
+    check_next_ok("unescape(\"\\n\")", YY_SYMBOL_UNESCAPE, &symbol);
     check_next_ok("< 5", YY_SYMBOL_LESS_OP, &symbol);
     check_next_ok("> 42", YY_SYMBOL_GREAT_OP, &symbol);
 }
@@ -1249,6 +1250,7 @@ void test_eval_string_ok(void)
     check_eval_string_ok("str(1 < 3)", "true");
     check_eval_string_ok("variable(\"s\")", "lorem ipsum");
     check_eval_string_ok("ifelse(1 == 2, \"true\", \"false\")", "false");
+    check_eval_string_ok("unescape(\"abc\\txyz\")", "abc\txyz");
 }
 
 void test_eval_string_ko(void)
@@ -2715,6 +2717,7 @@ void test_func_clamp(void)
 {
     yy_token_t result = {0};
 
+    // case number
     result = func_clamp(token_number(1), token_number(2), token_number(4));
     TEST_CHECK(result.type == YY_TOKEN_NUMBER);
     TEST_CHECK(result.number_val == 2);
@@ -2735,6 +2738,7 @@ void test_func_clamp(void)
     TEST_CHECK(result.type == YY_TOKEN_NUMBER);
     TEST_CHECK(result.number_val == 4);
 
+    // case datetime
     result = func_clamp(make_datetime("2024-09-09"), make_datetime("2024-09-10"), make_datetime("2024-09-12"));
     TEST_CHECK(result.type == YY_TOKEN_DATETIME);
     TEST_CHECK(result.datetime_val == make_datetime("2024-09-10").datetime_val);
@@ -2755,6 +2759,14 @@ void test_func_clamp(void)
     TEST_CHECK(result.type == YY_TOKEN_DATETIME);
     TEST_CHECK(result.datetime_val == make_datetime("2024-09-12").datetime_val);
 
+    // case error (min > max)
+    result = func_clamp(token_number(1), token_number(4), token_number(2));
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+
+    result = func_clamp(make_datetime("2024-09-09"), make_datetime("2024-09-12"), make_datetime("2024-09-10"));
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+
+    // case error (distinct types)
     result = func_clamp(token_error(YY_ERROR_VALUE), token_number(2), token_number(4));
     TEST_CHECK(result.type == YY_TOKEN_ERROR);
 
@@ -2764,6 +2776,7 @@ void test_func_clamp(void)
     result = func_clamp(token_number(1), token_number(2), token_error(YY_ERROR_VALUE));
     TEST_CHECK(result.type == YY_TOKEN_ERROR);
 
+    // case error (unsuported type)
     result = func_clamp(token_error(YY_ERROR_VALUE), token_error(YY_ERROR_VALUE), token_error(YY_ERROR_VALUE));
     TEST_CHECK(result.type == YY_TOKEN_ERROR);
 }
