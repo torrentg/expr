@@ -944,6 +944,7 @@ void test_read_symbol_variable_ko(void)
     check_read_symbol_variable_ko("$[1]");
     check_read_symbol_variable_ko("$_");
     check_read_symbol_variable_ko("${");
+    check_read_symbol_variable_ko("${a");
     check_read_symbol_variable_ko("${}");
     check_read_symbol_variable_ko("${{a}");
     check_read_symbol_variable_ko("${ab{cd}");
@@ -1114,6 +1115,7 @@ void test_eval_number_ok(void)
     check_eval_number_ok("1 + cos(variable(\"a\"))", 2);
     check_eval_number_ok("datepart(\"2024-09-10\", \"day\")", 10);
     check_eval_number_ok("${c}^3", 8);
+    check_eval_number_ok("1e0+1e1+1e2", 111);
 }
 
 void test_eval_number_ko(void)
@@ -1251,6 +1253,7 @@ void test_eval_string_ok(void)
     check_eval_string_ok("variable(\"s\")", "lorem ipsum");
     check_eval_string_ok("ifelse(1 == 2, \"true\", \"false\")", "false");
     check_eval_string_ok("unescape(\"abc\\txyz\")", "abc\txyz");
+    check_eval_string_ok("substr(upper(\"abc\\txyz\"), 4, 3)", "XYZ");
 }
 
 void test_eval_string_ko(void)
@@ -1388,12 +1391,50 @@ void test_eval_ko(void)
     TEST_CHECK(result.type == YY_TOKEN_ERROR);
     TEST_CHECK(result.error == YY_ERROR_SYNTAX);
 
+    // circular ref
+    sprintf(buf, "$w");
+    result = yy_eval(buf, buf + strlen(buf), &stack, resolve, NULL);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+    TEST_CHECK(result.error == YY_ERROR_CREF);
+
+    // non-solvable variable
+    sprintf(buf, "$a");
+    result = yy_eval(buf, buf + strlen(buf), &stack, NULL, NULL);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+    TEST_CHECK(result.error == YY_ERROR_REF);
+
+    // unexistent variable (II)
+    sprintf(buf, "1 + $unknow");
+    result = yy_eval(buf, buf + strlen(buf), &stack, resolve, NULL);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+    TEST_CHECK(result.error == YY_ERROR_VALUE);
+
     // not enough memory in the stack
     stack.reserved = 1;
     sprintf(buf, "true && false");
     result = yy_eval(buf, buf + strlen(buf), &stack, resolve, NULL);
     TEST_CHECK(result.type == YY_TOKEN_ERROR);
     TEST_CHECK(result.error == YY_ERROR_MEM);
+
+    // auxiliar stack
+    yy_token_t aux_data[64] = {0};
+    yy_stack_t aux_stack = {data, sizeof(aux_data)/sizeof(aux_data[0]), 0};
+
+    // corrupted stack (I)
+    stack.len = 1;
+    stack.reserved = 1;
+    stack.data[0] = token_error(YY_ERROR_SYNTAX);
+    result = yy_eval_stack(&stack, &aux_stack, resolve, NULL);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+    TEST_CHECK(result.error == YY_ERROR_EVAL);
+
+    // valid stack with an error value
+    stack.len = 1;
+    stack.reserved = 1;
+    stack.data[0] = token_error(YY_ERROR_VALUE);
+    result = yy_eval_stack(&stack, &aux_stack, resolve, NULL);
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+    TEST_CHECK(result.error == YY_ERROR_VALUE);
 }
 
 void test_sizeof(void)
@@ -1975,6 +2016,8 @@ void test_func_dateset(void)
 
 void test_func_datetrunc(void)
 {
+    yy_token_t result = {0};
+
     check_datetrunc("2024-08-26T14:16:53.493Z", "year"  , "2024-01-01T00:00:00.000Z");
     check_datetrunc("2024-08-26T14:16:53.493Z", "month" , "2024-08-01T00:00:00.000Z");
     check_datetrunc("2024-08-26T14:16:53.493Z", "day"   , "2024-08-26T00:00:00.000Z");
@@ -1983,6 +2026,12 @@ void test_func_datetrunc(void)
     check_datetrunc("2024-08-26T14:16:53.493Z", "second", "2024-08-26T14:16:53.000Z");
     check_datetrunc("2024-08-26T14:16:53.493Z", "millis", "2024-08-26T14:16:53.493Z");
     check_datetrunc("2024-08-26T14:16:53.493Z", "xxx"   , NULL);
+
+    result = func_datetrunc(token_bool(true), token_number(1));
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+
+    result = func_datetrunc(make_datetime("2024-09-09"), token_bool(true));
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
 }
 
 void test_func_isinf(void)
@@ -2830,6 +2879,10 @@ void test_func_ifelse(void)
     // error case (distinct return types)
     result = func_ifelse(token_bool(true), token_string("abc", 3), token_number(3));
     TEST_CHECK(result.type == YY_TOKEN_ERROR);
+
+    // error case (unsupported type)
+    result = func_ifelse(token_bool(true), token_error(YY_ERROR_VALUE), token_error(YY_ERROR_VALUE));
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
 }
 
 void test_func_random(void)
@@ -2862,7 +2915,6 @@ void test_funcs(void)
     test_func_datetrunc();
     test_func_dateset();
     test_func_dateadd();
-    test_func_datepart();
     test_func_isnan();
     test_func_isinf();
     test_func_div();

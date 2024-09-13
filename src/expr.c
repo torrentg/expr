@@ -870,7 +870,7 @@ VARIABLE_WITH_BRACES:
 
     has_braces = true;
 
-    if (unlikely(++ptr == end) || *ptr == '{' || *ptr == '}')
+    if (unlikely(++ptr == end) || *ptr == '\0' || *ptr == '{' || *ptr == '}')
         return YY_ERROR_SYNTAX;
 
 VARIABLE_WITH_BRACES_CONT:
@@ -1293,10 +1293,7 @@ static void push_to_operators(yy_parser_t *parser, const yy_token_t *token)
 /**
  * Process current symbol using the Shunting Yard algorithm.
  * 
- * Recursive descent parser grants adherence to grammar, except in 
- * the END case (ex: the invalid entry '(1' flush an END after the 
- * subexpression '1' with an unmatched ')'.
- * 
+ * Recursive descent parser grants adherence to grammar.
  * We use YY_TOKEN_NULL in operators stack as grouping sentinel '('.
  * 
  * @see https://en.wikipedia.org/wiki/Shunting_yard_algorithm
@@ -1803,7 +1800,7 @@ static void parse_expr_by_type(yy_parser_t *parser, yy_token_e type)
         case YY_TOKEN_NUMBER: parse_expr_number(parser); break;
         case YY_TOKEN_DATETIME: parse_expr_datetime(parser); break;
         case YY_TOKEN_STRING: parse_expr_string(parser); break;
-        default: parser->error = YY_ERROR_SYNTAX; break;
+        default: assert(false); parser->error = YY_ERROR_SYNTAX; break;
     }
 }
 
