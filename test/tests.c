@@ -119,7 +119,7 @@ void print_token(yy_token_t token)
 {
     char buf[128] = {0};
 
-    switch(token.type)
+    switch (token.type)
     {
         case YY_TOKEN_NULL:
             printf("NULL");

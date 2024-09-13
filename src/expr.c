@@ -1,7 +1,7 @@
 /*
 MIT License
 
-expr -- A simple expressions parser.
+expr -- A simple expression parser supporting multiple types.
 <https://github.com/torrentg/expr>
 
 Copyright (c) 2024 Gerard Torrent <gerard@generacio.com>
@@ -2957,7 +2957,7 @@ static yy_token_t func_dateadd(yy_token_t date, yy_token_t value, yy_token_t par
 
     gmtime_r(&time, &stm);
 
-    switch((int) part.number_val)
+    switch ((int) part.number_val)
     {
         case 0: stm.tm_year += val; break;
         case 1: stm.tm_mon  += val; break;

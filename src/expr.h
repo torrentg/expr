@@ -1,7 +1,7 @@
 /*
 MIT License
 
-expr -- A simple expression parser.
+expr -- A simple expression parser supporting multiple types.
 <https://github.com/torrentg/expr>
 
 Copyright (c) 2024 Gerard Torrent <gerard@generacio.com>
@@ -40,6 +40,8 @@ SOFTWARE.
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+#define EXPR_VERSION "0.6.0"
 
 typedef enum yy_token_e {
     YY_TOKEN_NULL,                  //!< Unassigned token.

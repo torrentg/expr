@@ -6,7 +6,8 @@
     "charconv": "c",
     "string.h": "c",
     "math.h": "c",
-    "linenoise.h": "c"
+    "linenoise.h": "c",
+    "ctype.h": "c"
   },
   "makefile.configureOnOpen": false
 }
