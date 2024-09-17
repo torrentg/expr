@@ -1116,6 +1116,7 @@ void test_eval_number_ok(void)
     check_eval_number_ok("datepart(\"2024-09-10\", \"day\")", 10);
     check_eval_number_ok("${c}^3", 8);
     check_eval_number_ok("1e0+1e1+1e2", 111);
+    check_eval_number_ok("((((1))))", 1);
 }
 
 void test_eval_number_ko(void)
@@ -1148,6 +1149,7 @@ void test_eval_number_ko(void)
     check_eval_number_ko("1++1", YY_ERROR_SYNTAX);
     check_eval_number_ko("1+-1", YY_ERROR_SYNTAX);
     check_eval_number_ko("2 * -1", YY_ERROR_SYNTAX);
+    check_eval_number_ko("ifelse(true, \"x\", 1)", YY_ERROR_SYNTAX);
 
     // invalid string to parse
     result = yy_eval_number(NULL, NULL, &stack, resolve, NULL);
@@ -2963,6 +2965,44 @@ void test_funcs(void)
     test_func_variable();
 }
 
+void test_recursion(void)
+{
+    yy_token_t data[1024] = {0};
+    yy_stack_t stack = {data, sizeof(data)/sizeof(data[0]), 0};
+    yy_token_t result = {0};
+    char str[10*MAX_RECURSION_TYPE] = {0};
+
+    // expr_xxxx recursion level -> '((((...(1)...))))
+    for (int i = 0; i < MAX_RECURSION_TYPE; i++)
+        strcat(str, "(");
+    
+    strcat(str, "1");
+
+    for (int i = 0; i < MAX_RECURSION_TYPE; i++)
+        strcat(str, ")");
+
+    result = yy_eval_number(str, str + strlen(str), &stack, resolve, NULL);
+
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+    TEST_CHECK(result.error == YY_ERROR_EXCD);
+
+    // expr_bool recursion level -> 'ifelse(ifelse(...ifelse(error, 1, 2), 1, 2)...))
+    str[0] = 0;
+
+    for (int i = 0; i < MAX_RECURSION_GENERIC + 2; i++)
+        strcat(str, "ifelse(");
+    
+    strcat(str, "error");
+
+    for (int i = 0; i < MAX_RECURSION_GENERIC + 2; i++)
+        strcat(str, ", 1, 2)");
+
+    result = yy_eval_number(str, str + strlen(str), &stack, resolve, NULL);
+
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+    TEST_CHECK(result.error == YY_ERROR_EXCD);
+}
+
 TEST_LIST = {
     { "sizeof",                       test_sizeof },
     { "yy_parse_number_ok",           test_parse_number_ok },
@@ -2994,5 +3034,6 @@ TEST_LIST = {
     { "yy_eval_ok",                   test_eval_ok },
     { "yy_eval_ko",                   test_eval_ko },
     { "yy_funcs",                     test_funcs },
+    { "recursion",                    test_recursion },
     { NULL, NULL }
 };

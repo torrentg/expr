@@ -2,6 +2,14 @@
 
 Expr implements 4 interlaced [recursive descent parser](https://en.wikipedia.org/wiki/Recursive_descent_parser) for parsing numeric, datetime, string and boolean expressions. When the type is unknow in advance, these are attempted sequentially until a type parser reports success.
 
+This grammar allows dangerous entries:
+
+* Elevated number of recursive calls (ex. `((...(1)...))`) can cause a program crash when the maximum stack size is exceeded
+* Elevated number of nested indefinite expressions (ex. `ifelse(efelse(...))`) lead to an exponential time resolution
+
+To avoid these problems, expr limits the number recursive calls and nested indefinite expressions. 
+Fixed maximum values should be sufficient for the vast majority of cases.
+
 ## Grammar for types
 
 ```txt

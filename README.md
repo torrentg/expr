@@ -58,6 +58,13 @@ Compile previous code using:
 gcc -o example example.c expr.c -lm
 ```
 
+## Contributors
+
+| Name | Contribution |
+|:-----|:-------------|
+| [Gerard Torrent](https://github.com/torrentg/) | Initial work<br/>Code maintainer|
+| [skeeto](https://www.reddit.com/user/skeeto/) | [Fuzzer analysis (reddit post)](https://www.reddit.com/r/C_Programming/comments/1fhigj8/a_simple_expression_parser_supporting_multiple/) |
+
 ## License
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.

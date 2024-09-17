@@ -41,7 +41,7 @@ SOFTWARE.
 extern "C" {
 #endif
 
-#define EXPR_VERSION "0.6.0"
+#define EXPR_VERSION "0.6.1"
 
 typedef enum yy_token_e {
     YY_TOKEN_NULL,                  //!< Unassigned token.
@@ -61,6 +61,7 @@ typedef enum yy_error_e {
     YY_ERROR_SYNTAX,                //!< Syntax error (ex. unexpected parenthesis, malformated number, etc).
     YY_ERROR_CREF,                  //!< Circular reference (error returned by resolve).
     YY_ERROR_MEM,                   //!< Not enough memory (try to increase the stack size).
+    YY_ERROR_EXCD,                  //!< The maximum number of nested boolean levels has been exceeded (chimeric entry).
     YY_ERROR_EVAL,                  //!< Evaluation error (ex. corrupted stack).
     YY_ERROR,                       //!< Generic error (ex. given stack is NULL).
 } yy_error_e;

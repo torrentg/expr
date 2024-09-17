@@ -87,6 +87,9 @@ SOFTWARE.
     #define M_PI    3.14159265358979323846
 #endif
 
+#define MAX_RECURSION_TYPE         100
+#define MAX_RECURSION_GENERIC        9
+
 #define make_string(ptr_, len_)    (yy_str_t){.ptr = (ptr_), .len = (uint32_t)(len_)}
 #define token_error(err_)          (yy_token_t){ .error = (err_)                    , .type = YY_TOKEN_ERROR    }
 #define token_bool(val_)           (yy_token_t){ .bool_val = (val_)                 , .type = YY_TOKEN_BOOL     }
@@ -185,12 +188,14 @@ typedef struct yy_parser_t
 {
     const char *begin;              //!< Expression to parse.
     const char *end;                //!< One char after the end of the expression to parse.
-    const char *curr;               //!< Current position being parsed.
     yy_stack_t *stack;              //!< Resulting RPN stack.
+    const char *curr;               //!< Current position being parsed.
     uint32_t operators_len;         //!< Length of the operators stack.
     yy_symbol_t curr_symbol;        //!< Current symbol.
     yy_symbol_t prev_symbol;        //!< Previous symbol.
     yy_error_e error;               //!< Error code (YY_OK means no error), curr points to error location.
+    uint16_t recursion_type;        //!< Number of recursive expr_xxxx() calls.
+    uint16_t recursion_generic;     //!< Number of recursive expr_generic() calls.
 } yy_parser_t;
 
 typedef struct yy_identifier_t
@@ -436,9 +441,10 @@ bool is_blocking_error(yy_error_e err)
 {
     switch (err) {
         case YY_ERROR:
-        case YY_ERROR_CREF:
         case YY_ERROR_MEM:
+        case YY_ERROR_CREF:
         case YY_ERROR_EVAL:
+        case YY_ERROR_EXCD:
         case YY_ERROR_SYNTAX:
             return true;
         default:
@@ -1501,6 +1507,8 @@ static void init_parser(yy_parser_t *parser, const char *begin, const char *end,
     parser->curr_symbol = (yy_symbol_t){0};
     parser->prev_symbol = (yy_symbol_t){0};
     parser->error = (stack && stack->reserved ? YY_OK : YY_ERROR_MEM);
+    parser->recursion_type = 0;
+    parser->recursion_generic = 0;
 
     consume(parser);
 }
@@ -1643,15 +1651,15 @@ static void parse_expr_number(yy_parser_t *parser)
 { 
     assert(parser);
 
-EXPR_NUMBER_START:
+    if (++(parser->recursion_type) > MAX_RECURSION_TYPE)
+        parser->error = YY_ERROR_EXCD;
 
-    if (parser->error != YY_OK)
-        return;
+EXPR_NUMBER_START:
 
     parse_term_number(parser);
 
     if (parser->error != YY_OK)
-        return;
+        goto EXPR_NUMBER_END;
 
     switch (parser->curr_symbol.type)
     {
@@ -1666,6 +1674,11 @@ EXPR_NUMBER_START:
         default:
             break;
     }
+
+EXPR_NUMBER_END:
+
+    assert(parser->recursion_type != 0);
+    parser->recursion_type--;
 }
 
 /**
@@ -1768,15 +1781,15 @@ static void parse_expr_string(yy_parser_t *parser)
 { 
     assert(parser);
 
-EXPR_STRING_START:
+    if (++(parser->recursion_type) > MAX_RECURSION_TYPE)
+        parser->error = YY_ERROR_EXCD;
 
-    if (parser->error != YY_OK)
-        return;
+EXPR_STRING_START:
 
     parse_term_string(parser);
 
     if (parser->error != YY_OK)
-        return;
+        goto EXPR_STRING_END;
 
     switch (parser->curr_symbol.type)
     {
@@ -1787,6 +1800,11 @@ EXPR_STRING_START:
         default:
             break;
     }
+
+EXPR_STRING_END:
+
+    assert(parser->recursion_type != 0);
+    parser->recursion_type--;
 }
 
 static void parse_expr_by_type(yy_parser_t *parser, yy_token_e type)
@@ -1802,6 +1820,20 @@ static void parse_expr_by_type(yy_parser_t *parser, yy_token_e type)
         case YY_TOKEN_STRING: parse_expr_string(parser); break;
         default: assert(false); parser->error = YY_ERROR_SYNTAX; break;
     }
+}
+
+static yy_parser_t save_state(yy_parser_t *parser)
+{
+    yy_parser_t ret = *parser;
+    ret.end = (const char *) (intptr_t) parser->stack->len;
+    return ret;
+}
+
+static void restore_state(yy_parser_t *parser, const yy_parser_t *prev_state)
+{
+    size_t len = sizeof(yy_parser_t) - offsetof(yy_parser_t, curr);
+    memcpy(&parser->curr, &prev_state->curr, len);
+    parser->stack->len = (uint32_t) (intptr_t) prev_state->end;
 }
 
 /**
@@ -1821,13 +1853,16 @@ static yy_token_e parse_expr_generic(yy_parser_t *parser, bool check_bool, bool 
 {
     static const yy_token_e types[] = {YY_TOKEN_BOOL, YY_TOKEN_NUMBER, YY_TOKEN_DATETIME, YY_TOKEN_STRING};
 
-    if (parser->error != YY_OK)
-        return YY_TOKEN_ERROR;
+    if (++(parser->recursion_generic) > MAX_RECURSION_GENERIC)
+        parser->error = YY_ERROR_EXCD;
 
-    yy_parser_t orig_parser = *parser;
-    yy_stack_t orig_stack = *parser->stack;
+    yy_token_e ret = YY_TOKEN_ERROR;
+    yy_parser_t prev_state = save_state(parser);
     const char *curr = parser->curr;
     yy_error_e error = YY_OK;
+
+    if (parser->error != YY_OK)
+        goto EXPR_GENERIC_END;
 
     for (size_t i = (check_bool ? 0 : 1); i < (sizeof(types)/sizeof(types[0])); i++)
     {
@@ -1836,23 +1871,29 @@ static yy_token_e parse_expr_generic(yy_parser_t *parser, bool check_bool, bool 
         if (do_finalize)
             finalize(parser);
 
-        if (parser->error == YY_OK)
-            return types[i];
+        if (parser->error == YY_OK) {
+            ret = types[i];
+            goto EXPR_GENERIC_END;
+        }
 
         if (error < parser->error || (error == parser->error && curr < parser->curr)) {
             error = parser->error;
             curr = parser->curr;
         }
 
-        // restore state
-        *parser = orig_parser;
-        *parser->stack = orig_stack;
+        restore_state(parser, &prev_state);
     }
 
     parser->error = error;
     parser->curr = curr;
+    ret = YY_TOKEN_ERROR;
 
-    return YY_TOKEN_ERROR;
+EXPR_GENERIC_END:
+
+    assert(parser->recursion_generic != 0);
+    parser->recursion_generic--;
+
+    return ret;
 }
 
 /**
@@ -1871,10 +1912,12 @@ static void parse_term_bool(yy_parser_t *parser)
 
     yy_error_e error = YY_OK;
     const char *curr = NULL;
-    yy_parser_t orig_parser = *parser;
-    yy_stack_t orig_stack = *parser->stack;
+    yy_parser_t prev_state = save_state(parser);
 
     yy_token_e type = parse_expr_generic(parser, false, false);
+
+    if (type == YY_TOKEN_ERROR && parser->error != YY_ERROR_SYNTAX) // MEM or EXCD
+        return;
 
     if (type != YY_TOKEN_ERROR)
     {
@@ -1898,9 +1941,7 @@ static void parse_term_bool(yy_parser_t *parser)
     error = parser->error;
     curr = parser->curr;
 
-    // restore state
-    *parser = orig_parser;
-    *parser->stack = orig_stack;
+    restore_state(parser, &prev_state);
 
     switch (parser->curr_symbol.type)
     {
@@ -1968,15 +2009,15 @@ static void parse_expr_bool(yy_parser_t *parser)
 { 
     assert(parser);
 
-EXPR_BOOL_START:
+    if (++(parser->recursion_type) > MAX_RECURSION_TYPE)
+        parser->error = YY_ERROR_EXCD;
 
-    if (parser->error != YY_OK)
-        return;
+EXPR_BOOL_START:
 
     parse_term_bool(parser);
 
     if (parser->error != YY_OK)
-        return;
+        goto EXPR_BOOL_END;
 
     switch (parser->curr_symbol.type)
     {
@@ -1989,6 +2030,11 @@ EXPR_BOOL_START:
         default:
             break;
     }
+
+EXPR_BOOL_END:
+
+    assert(parser->recursion_type != 0);
+    parser->recursion_type--;
 }
 
 /**
@@ -2146,7 +2192,13 @@ static void parse_term_datetime(yy_parser_t *parser)
 INLINE
 static void parse_expr_datetime(yy_parser_t *parser)
 {
+    if (++(parser->recursion_type) > MAX_RECURSION_TYPE)
+        parser->error = YY_ERROR_EXCD;
+
     parse_term_datetime(parser);
+
+    assert(parser->recursion_type != 0);
+    parser->recursion_type--;
 }
 
 yy_error_e yy_compile_number(const char *begin, const char *end, yy_stack_t *stack, const char **err)
