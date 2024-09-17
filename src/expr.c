@@ -3436,6 +3436,67 @@ static yy_token_t func_unescape(yy_token_t str, yy_eval_ctx_t *ctx)
     return token_string(ret.ptr, ret.len);
 }
 
+/**
+ * memmem() clone.
+ * 
+ * memmem() function is a GNU extension in the string.h.
+ * This is not an standar function which limits portability.
+ * 
+ * This alternative uses the "Not So Naive" algorithm, a very 
+ * simple but usually effective algorithm.
+ * 
+ * @see http://www-igm.univ-mlv.fr/~lecroq/string/
+ * @see https://android.googlesource.com/platform/bionic/+/ics-mr0/libc/string/memmem.c
+ * 
+ * @param haystack Main memory area to search.
+ * @param n Main memory area length (in bytes).
+ * @param needle Substring to search for.
+ * @param m Substring length (in bytes).
+ * @return Pointer to the beginning of the substring, or NULL if the  substring  is  not found.
+ */
+static void *str_memmem(const void *haystack, size_t n, const void *needle, size_t m)
+{
+    if (m > n || !n)
+        return NULL;
+
+    const unsigned char* y = (const unsigned char*) haystack;
+    const unsigned char* x = (const unsigned char*) needle;
+    size_t j = 0;
+    size_t k = 1;
+    size_t l = 2;
+
+    if (m == 0)
+        return (void *) haystack;
+
+    if (m == 1)
+        return memchr(haystack, ((unsigned char*)needle)[0], n);
+
+    // case m > 1
+
+    if (x[0] == x[1])
+    {
+        k = 2;
+        l = 1;
+    }
+
+    while (j <= n-m)
+    {
+        if (x[1] != y[j+1])
+        {
+            j += k;
+        }
+        else
+        {
+            if (!memcmp(x+2, y+j+2, m-2) && x[0] == y[j])
+                return (void*) &y[j];
+
+            j += l;
+        }
+    }
+
+    return NULL;
+}
+
 static uint32_t str_count_ocurrences(const yy_str_t *str, const yy_str_t *substr)
 {
     uint32_t ocurrences = 0;
@@ -3446,7 +3507,7 @@ static uint32_t str_count_ocurrences(const yy_str_t *str, const yy_str_t *substr
     if (!str->len || !substr->len)
         return 0;
 
-    while ((aux = (char *) memmem(ptr, len, substr->ptr, substr->len)) != NULL) {
+    while ((aux = (char *) str_memmem(ptr, len, substr->ptr, substr->len)) != NULL) {
         len -= (aux - ptr) + substr->len;
         ptr = aux + substr->len;
         ocurrences++;
@@ -3464,7 +3525,7 @@ static void str_replace(const yy_str_t str, const yy_str_t old_substr, const yy_
 
     assert(old_substr.len);
 
-    while ((aux = (char *) memmem(src, len, old_substr.ptr, old_substr.len)) != NULL)
+    while ((aux = (char *) str_memmem(src, len, old_substr.ptr, old_substr.len)) != NULL)
     {
         size_t num_bytes = aux - src;
         memcpy(dest, src, num_bytes);
@@ -3532,7 +3593,7 @@ static yy_token_t func_find(yy_token_t needle, yy_token_t haystack, yy_token_t s
     if (start.type != YY_TOKEN_NUMBER)
         return token_error(YY_ERROR_VALUE);
 
-    const char *ptr = (char *) memmem(haystack.str_val.ptr, haystack.str_val.len, needle.str_val.ptr, needle.str_val.len);
+    const char *ptr = (char *) str_memmem(haystack.str_val.ptr, haystack.str_val.len, needle.str_val.ptr, needle.str_val.len);
 
     yy_token_t ret = (!ptr ? token_error(YY_ERROR_VALUE) : token_number(ptr - haystack.str_val.ptr));
 
