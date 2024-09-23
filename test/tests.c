@@ -70,6 +70,7 @@ const char * symbol_to_str(yy_symbol_e type)
         case YY_SYMBOL_RANDOM: return "RANDOM";
         case YY_SYMBOL_NOW: return "NOW";
         case YY_SYMBOL_DATEPART: return "DATEPART";
+        case YY_SYMBOL_DATEDIFF: return "DATEDIFF";
         case YY_SYMBOL_DATEADD: return "DATEADD";
         case YY_SYMBOL_DATETRUNC: return "DATETRUNC";
         case YY_SYMBOL_LENGTH: return "LENGTH";
@@ -998,6 +999,7 @@ void test_read_symbol_ok(void)
     check_next_ok("max(3,6)", YY_SYMBOL_MAX, &symbol);
     check_next_ok("mod(10, 2)", YY_SYMBOL_MODULO, &symbol);
     check_next_ok("datepart(${d}, \"day\")", YY_SYMBOL_DATEPART, &symbol);
+    check_next_ok("datediff(now(), $date, \"day\")", YY_SYMBOL_DATEDIFF, &symbol);
     check_next_ok("length(${str})", YY_SYMBOL_LENGTH, &symbol);
     check_next_ok("datetrunc(\"2024-08-24T08:55:06.123Z\", \"day\")", YY_SYMBOL_DATETRUNC, &symbol);
     check_next_ok("sqrt(2)", YY_SYMBOL_SQRT, &symbol);
@@ -1114,6 +1116,7 @@ void test_eval_number_ok(void)
     check_eval_number_ok("ifelse(1 < 4 && false, 5, 7)", 7);
     check_eval_number_ok("1 + cos(variable(\"a\"))", 2);
     check_eval_number_ok("datepart(\"2024-09-10\", \"day\")", 10);
+    check_eval_number_ok("datediff(\"2024-09-10\", \"2024-09-12\", \"day\")", 2);
     check_eval_number_ok("${c}^3", 8);
     check_eval_number_ok("1e0+1e1+1e2", 111);
     check_eval_number_ok("((((1))))", 1);
@@ -1492,11 +1495,9 @@ void test_func_find(void)
 
 void test_func_datepart(void)
 {
-    const char *date_str = "2024-08-26T14:16:53.493Z";
-    yy_token_t date = {0};
+    yy_token_t date = make_datetime("2024-08-26T14:16:53.493Z");
     yy_token_t result = {0};
 
-    date = yy_parse_datetime(date_str, date_str + strlen(date_str));
     TEST_CHECK(date.type == YY_TOKEN_DATETIME);
 
     result = func_datepart(date, token_number(0)); // year
@@ -1534,6 +1535,74 @@ void test_func_datepart(void)
     TEST_CHECK(result.type == YY_TOKEN_ERROR);
 
     result = func_datepart(token_number(1), token_number(1)); // invalid date
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+}
+
+void test_func_datediff(void)
+{
+    yy_token_t date1 = make_datetime("2024-08-26T14:16:53.493Z");
+    yy_token_t date2 = make_datetime("2024-08-28T12:18:55.495Z");
+    yy_token_t result = {0};
+
+    TEST_CHECK(date1.type == YY_TOKEN_DATETIME);
+    TEST_CHECK(date2.type == YY_TOKEN_DATETIME);
+
+    result = func_datediff(date1, date2, token_number(0)); // year (unsupported)
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+
+    result = func_datediff(date1, date2, token_number(1)); // month (unsupported)
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+
+    result = func_datediff(date1, date2, token_number(2)); // day
+    TEST_CHECK(result.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(result.number_val == 165722002.0/(1000*60*60*24));
+
+    result = func_datediff(date2, date1, token_number(2)); // day
+    TEST_CHECK(result.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(result.number_val == -165722002.0/(1000*60*60*24));
+
+    result = func_datediff(date1, date2, token_number(3)); // hour
+    TEST_CHECK(result.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(result.number_val == 165722002.0/(1000*60*60));
+
+    result = func_datediff(date2, date1, token_number(3)); // hour
+    TEST_CHECK(result.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(result.number_val == -165722002.0/(1000*60*60));
+
+    result = func_datediff(date1, date2, token_number(4)); // minute
+    TEST_CHECK(result.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(result.number_val == 165722002.0/(1000*60));
+
+    result = func_datediff(date2, date1, token_number(4)); // minute
+    TEST_CHECK(result.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(result.number_val == -165722002.0/(1000*60));
+
+    result = func_datediff(date1, date2, token_number(5)); // second
+    TEST_CHECK(result.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(result.number_val == 165722002.0/(1000));
+
+    result = func_datediff(date2, date1, token_number(5)); // second
+    TEST_CHECK(result.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(result.number_val == -165722002.0/(1000));
+
+    result = func_datediff(date1, date2, token_number(6)); // millis
+    TEST_CHECK(result.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(result.number_val == 165722002);
+
+    result = func_datediff(date2, date1, token_number(6)); // millis
+    TEST_CHECK(result.type == YY_TOKEN_NUMBER);
+    TEST_CHECK(result.number_val == -165722002);
+
+    result = func_datediff(date1, date2, token_number(99)); // unknow part
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+
+    result = func_datediff(date1, date2, token_bool(false)); // unexpected type
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+
+    result = func_datediff(token_number(1), date2, token_number(1)); // invalid date
+    TEST_CHECK(result.type == YY_TOKEN_ERROR);
+
+    result = func_datediff(date1, token_number(2), token_number(1)); // invalid date
     TEST_CHECK(result.type == YY_TOKEN_ERROR);
 }
 
@@ -2914,6 +2983,7 @@ void test_funcs(void)
 {
     test_func_now();
     test_func_datepart();
+    test_func_datediff();
     test_func_datetrunc();
     test_func_dateset();
     test_func_dateadd();

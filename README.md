@@ -7,9 +7,10 @@ _Features_:
 * Multiple types (number, bool, datetime, string and error)
 * Memory managed by user (no allocs)
 * Iterator based interface
-* Variables are supported
-* Expressions can be compiled once ([RPN](https://en.wikipedia.org/wiki/Reverse_Polish_notation) stack) and subsequently evaluated multiple times
-* Syntax checked at compile time (ex. `1 + "str"` fails)
+* Supporting variables
+* Stateless
+* Expressions can be compiled ([RPN](https://en.wikipedia.org/wiki/Reverse_Polish_notation) stack)
+* Fully compile-time checked syntax
 * Documented [grammar](grammar.md)
 * Standard C11 code
 * No dependencies

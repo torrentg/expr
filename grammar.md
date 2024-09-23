@@ -89,7 +89,8 @@ numConst    = <see list below>
 | number   | `clamp`      | (numExpr, numExpr, numExpr)   | Coerce a value to be in a fixed range    |
 | number   | `length`     | (strExpr)                     | Length of a string                       |
 | number   | `find`       | (strExpr, strExpr, numExpr)   | Locate a text string into another text   |
-| number   | `datepart`   | (timeExpr, timePart)          | Returns a part from a date               |
+| number   | `datepart`   | (timeExpr, timePart)          | Returns a part from a datetime           |
+| number   | `datediff`   | (timeExpr, timeExpr, timePart)| Difference between two datetimes         |
 | number   | `ifelse`     | (boolExpr, numExpr, numExpr)  | Conditional value                        |
 
 | Type   | Constant | Value               |

@@ -153,6 +153,7 @@ typedef enum yy_symbol_e
     YY_SYMBOL_ISNAN,                //!< isnan
     YY_SYMBOL_ISERROR,              //!< iserror
     YY_SYMBOL_DATEPART,             //!< datepart
+    YY_SYMBOL_DATEDIFF,             //!< datediff
     YY_SYMBOL_DATEADD,              //!< dateadd
     YY_SYMBOL_DATESET,              //!< dateset
     YY_SYMBOL_DATETRUNC,            //!< datetrunc
@@ -238,6 +239,7 @@ static void parse_datepart(yy_parser_t *parser);
 // Functions in expressions
 static yy_token_t func_now(yy_eval_ctx_t *ctx);
 static yy_token_t func_datepart(yy_token_t date, yy_token_t part);
+static yy_token_t func_datediff(yy_token_t date1, yy_token_t date2, yy_token_t part);
 static yy_token_t func_dateadd(yy_token_t date, yy_token_t value, yy_token_t part);
 static yy_token_t func_dateset(yy_token_t date, yy_token_t value, yy_token_t part);
 static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part);
@@ -304,6 +306,7 @@ const yy_identifier_t yy_identifiers[] =
     { "clamp",     YY_SYMBOL_CLAMP         },
     { "cos",       YY_SYMBOL_COS           },
     { "dateadd",   YY_SYMBOL_DATEADD       },
+    { "datediff",  YY_SYMBOL_DATEDIFF      },
     { "datepart",  YY_SYMBOL_DATEPART      },
     { "dateset",   YY_SYMBOL_DATESET       },
     { "datetrunc", YY_SYMBOL_DATETRUNC     },
@@ -399,6 +402,7 @@ static const yy_token_t symbol_to_token[] =
     [YY_SYMBOL_RANDOM]          = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_random     , 2, .is_not_pure = true) },
     [YY_SYMBOL_NOW]             = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_now        , 0, .is_not_pure = true) },
     [YY_SYMBOL_DATEPART]        = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_datepart   , 2) },
+    [YY_SYMBOL_DATEDIFF]        = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_datediff   , 3) },
     [YY_SYMBOL_DATEADD]         = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_dateadd    , 3) },
     [YY_SYMBOL_DATESET]         = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_dateset    , 3) },
     [YY_SYMBOL_DATETRUNC]       = { .type = YY_TOKEN_FUNCTION, .function = make_func(func_datetrunc  , 2) },
@@ -1632,6 +1636,16 @@ static void parse_term_number(yy_parser_t *parser)
         case YY_SYMBOL_DATEPART:
             consume(parser);
             expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_datetime(parser);
+            expect(parser, YY_SYMBOL_COMMA);
+            parse_datepart(parser);
+            expect(parser, YY_SYMBOL_PAREN_RIGHT);
+            break;
+        case YY_SYMBOL_DATEDIFF:
+            consume(parser);
+            expect(parser, YY_SYMBOL_PAREN_LEFT);
+            parse_expr_datetime(parser);
+            expect(parser, YY_SYMBOL_COMMA);
             parse_expr_datetime(parser);
             expect(parser, YY_SYMBOL_COMMA);
             parse_datepart(parser);
@@ -3674,6 +3688,32 @@ static yy_token_t func_datepart(yy_token_t date, yy_token_t part)
         case 4: return token_number(stm.tm_min);
         case 5: return token_number(stm.tm_sec);
         case 6: return token_number(date.datetime_val % 1000UL);
+        default: return token_error(YY_ERROR_VALUE);
+    }
+}
+
+static yy_token_t func_datediff(yy_token_t date1, yy_token_t date2, yy_token_t part)
+{
+    if (date1.type != YY_TOKEN_DATETIME)
+        return token_error(YY_ERROR_VALUE);
+
+    if (date2.type != YY_TOKEN_DATETIME)
+        return token_error(YY_ERROR_VALUE);
+
+    if (part.type != YY_TOKEN_NUMBER)
+        return token_error(YY_ERROR_VALUE);
+
+    int64_t diff = (int64_t) date2.datetime_val - (int64_t) date1.datetime_val;
+
+    switch((int) part.number_val)
+    {
+        case 0: return token_error(YY_ERROR_VALUE);                             // years (unsupported)
+        case 1: return token_error(YY_ERROR_VALUE);                             // months (unsupported)
+        case 2: return token_number((double) diff / (double) (1000*60*60*24));  // days
+        case 3: return token_number((double) diff / (double) (1000*60*60));     // hours
+        case 4: return token_number((double) diff / (double) (1000*60));        // minutes
+        case 5: return token_number((double) diff / (double) (1000));           // seconds
+        case 6: return token_number(diff);                                      // millis
         default: return token_error(YY_ERROR_VALUE);
     }
 }
