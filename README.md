@@ -1,8 +1,8 @@
 # expr
 
-A simple expression parser supporting multiple types.
+An expression parser supporting multiple types.
 
-_Features_:
+_Key Features_:
 
 * Multiple types (number, bool, datetime, string and error)
 * Memory managed by user (no allocs)

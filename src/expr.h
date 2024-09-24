@@ -1,7 +1,7 @@
 /*
 MIT License
 
-expr -- A simple expression parser supporting multiple types.
+expr -- An expression parser supporting multiple types.
 <https://github.com/torrentg/expr>
 
 Copyright (c) 2024 Gerard Torrent <gerard@generacio.com>
@@ -41,7 +41,7 @@ SOFTWARE.
 extern "C" {
 #endif
 
-#define EXPR_VERSION "0.6.1"
+#define EXPR_VERSION "0.7.0"
 
 typedef enum yy_token_e {
     YY_TOKEN_NULL,                  //!< Unassigned token.
@@ -61,7 +61,7 @@ typedef enum yy_error_e {
     YY_ERROR_SYNTAX,                //!< Syntax error (ex. unexpected parenthesis, malformated number, etc).
     YY_ERROR_CREF,                  //!< Circular reference (error returned by resolve).
     YY_ERROR_MEM,                   //!< Not enough memory (try to increase the stack size).
-    YY_ERROR_EXCD,                  //!< The maximum number of nested boolean levels has been exceeded (chimeric entry).
+    YY_ERROR_EXCD,                  //!< Recursion limits exceeded (usually a malicious input).
     YY_ERROR_EVAL,                  //!< Evaluation error (ex. corrupted stack).
     YY_ERROR,                       //!< Generic error (ex. given stack is NULL).
 } yy_error_e;
@@ -122,9 +122,6 @@ yy_token_t yy_eval(const char *begin, const char *end, yy_stack_t *stack, yy_tok
  * 
  * @see https://github.com/torrentg/expr
  *
- * In the generic case, yy_compile(), we try to parse it in the following order:
- *   number, datetime, string, bool
- * 
  * Caution, variables and strings on the stack point to the str input.
  * Recode these values before deallocating str.
  * 

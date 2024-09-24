@@ -1,7 +1,7 @@
 /*
 MIT License
 
-expr -- A simple expression parser supporting multiple types.
+expr -- An expression parser supporting multiple types.
 <https://github.com/torrentg/expr>
 
 Copyright (c) 2024 Gerard Torrent <gerard@generacio.com>
@@ -1199,9 +1199,9 @@ static yy_token_t * get(yy_stack_t *stack, uint32_t idx)
  * 
  * Unsupported simplifications:
  *   - For commutative operators, move fixed values to top (ex: 1+$a+3 -> $a+1+3 -> $a+4)
- *   - Non-pure functions
+ *   - Non-pure functions acting as pure on fixed strings (ex. func_trim())
  * 
- * @param stack Stack to simplify.
+ * @param[in] stack Stack to simplify.
  * 
  * @return true = simplified, false = not simplified.
  */
@@ -1211,13 +1211,10 @@ static bool simplify_stack(yy_parser_t *parser)
     yy_stack_t *stack = parser->stack;
     yy_token_t *token0 = top_stack(parser);
 
-    if (!token0 || token0->type != YY_TOKEN_FUNCTION)
+    if (!token0 || token0->type != YY_TOKEN_FUNCTION || token0->function.is_not_pure)
         return false;
 
     assert((int)stack->len >= token0->function.num_args + 1);
-
-    if (token0->function.is_not_pure)
-        return false;
 
     if (token0->function.num_args == 0) {
         *token0 = ((yy_func_0) token0->function.ptr)();
@@ -1404,12 +1401,7 @@ static void process_current_symbol(yy_parser_t *parser)
     {
         while ((op = top_operators(parser)) != NULL)
         {
-            if (op->type == YY_TOKEN_NULL) {
-                // unmatched parentesis
-                parser->error = YY_ERROR;
-                return;
-            }
-
+            assert(op->type != YY_TOKEN_NULL);
             push_to_stack(parser, op);
             pop_operators(parser);
         }
@@ -1421,7 +1413,7 @@ static void process_current_symbol(yy_parser_t *parser)
 }
 
 /**
- * Read next symbol and updates parser state accordingly.
+ * Read next symbol updating parser state accordingly.
  * Errors are notified via parser.error.
  * 
  * @param[in] parser Parser to update.
@@ -1482,7 +1474,7 @@ static void expect(yy_parser_t *parser, yy_symbol_e type)
 }
 
 /**
- * Finalize parse.
+ * Finalize parsing.
  * 
  * @param[in] parser Parser to update.
  */
@@ -1853,6 +1845,9 @@ static void restore_state(yy_parser_t *parser, const yy_parser_t *prev_state)
 /**
  * Parse an expression until an unrecognized symbol is found.
  * 
+ * In case of error, returns the most serious error found and the error position 
+ * corresponds to the parser that advanced the furthest.
+ * 
  * @param[in] parser Parser to update.
  * @param[in] check_bool Checks bool type (to avoid a non-ending loop parsing a bool).
  * @param[in] do_finalize Flag to finalize.
@@ -2083,6 +2078,8 @@ static void parse_datepart(yy_parser_t *parser)
 
 /**
  * Parse a datetime value.
+ * 
+ * A datetime value is a double-quoted string containing a datetime.
  * 
  * @param[in] Parser object.
  */
@@ -2984,8 +2981,7 @@ yy_token_t yy_parse(const char *begin, const char *end)
 }
 
 // ==================================================
-// Every func_xxx() receiving an YY_TYPE_STRING has to
-// manage the aux memory (yes, it's weird).
+// Expr functions implementation.
 // ==================================================
 
 #define UNUSED(x) (void)(x)
@@ -3073,7 +3069,7 @@ static yy_token_t func_dateset(yy_token_t date, yy_token_t value, yy_token_t par
 
     gmtime_r(&time, &stm);
 
-    switch((int) part.number_val)
+    switch ((int) part.number_val)
     {
         case 0: stm.tm_year = val - 1900; break;
         case 1: stm.tm_mon  = val - 1; break;
@@ -3112,7 +3108,7 @@ static yy_token_t func_datetrunc(yy_token_t date, yy_token_t part)
 
     gmtime_r(&time, &stm);
 
-    switch((int) part.number_val)
+    switch ((int) part.number_val)
     {
         case 0: stm.tm_mon  =  0; fallthrough;
         case 1: stm.tm_mday =  1; fallthrough;
@@ -3156,15 +3152,15 @@ static bool is_temp_ptr(yy_eval_ctx_t *ctx, const char *ptr) {
     return (ptr && (char *) &ctx->stack->data[ctx->stack->len] <= ptr && ptr < (char *) &ctx->stack->data[ctx->stack->reserved]);
 }
 
-INLINE
-static uint32_t temp_total_bytes(yy_eval_ctx_t *ctx) {
-    return (uint32_t) sizeof(yy_token_t) * (ctx->stack->reserved - ctx->stack->len);
-}
+// INLINE
+// static uint32_t temp_total_bytes(yy_eval_ctx_t *ctx) {
+//     return (uint32_t) sizeof(yy_token_t) * (ctx->stack->reserved - ctx->stack->len);
+// }
 
-INLINE
-static uint32_t temp_used_bytes(yy_eval_ctx_t *ctx) {
-    return (uint32_t)((char *) &ctx->stack->data[ctx->stack->reserved] - ctx->tmp_str);
-}
+// INLINE
+// static uint32_t temp_used_bytes(yy_eval_ctx_t *ctx) {
+//     return (uint32_t)((char *) &ctx->stack->data[ctx->stack->reserved] - ctx->tmp_str);
+// }
 
 INLINE
 static uint32_t temp_avail_bytes(yy_eval_ctx_t *ctx) {
@@ -3514,10 +3510,10 @@ static yy_token_t func_unescape(yy_token_t str, yy_eval_ctx_t *ctx)
  * @see http://www-igm.univ-mlv.fr/~lecroq/string/
  * @see https://android.googlesource.com/platform/bionic/+/ics-mr0/libc/string/memmem.c
  * 
- * @param haystack Main memory area to search.
- * @param n Main memory area length (in bytes).
- * @param needle Substring to search for.
- * @param m Substring length (in bytes).
+ * @param[in] haystack Main memory area to search.
+ * @param[in] n Main memory area length (in bytes).
+ * @param[in] needle Substring to search for.
+ * @param[in] m Substring length (in bytes).
  * @return Pointer to the beginning of the substring, or NULL if the  substring  is  not found.
  */
 static void *str_memmem(const void *haystack, size_t n, const void *needle, size_t m)
@@ -3679,7 +3675,7 @@ static yy_token_t func_datepart(yy_token_t date, yy_token_t part)
 
     gmtime_r(&time, &stm);
 
-    switch((int) part.number_val)
+    switch ((int) part.number_val)
     {
         case 0: return token_number(1900 + stm.tm_year);
         case 1: return token_number(stm.tm_mon + 1);
@@ -3705,7 +3701,7 @@ static yy_token_t func_datediff(yy_token_t date1, yy_token_t date2, yy_token_t p
 
     int64_t diff = (int64_t) date2.datetime_val - (int64_t) date1.datetime_val;
 
-    switch((int) part.number_val)
+    switch ((int) part.number_val)
     {
         case 0: return token_error(YY_ERROR_VALUE);                             // years (unsupported)
         case 1: return token_error(YY_ERROR_VALUE);                             // months (unsupported)
