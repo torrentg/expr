@@ -41,7 +41,7 @@ SOFTWARE.
 extern "C" {
 #endif
 
-#define EXPR_VERSION "0.7.0"
+#define EXPR_VERSION "0.7.1"
 
 typedef enum yy_token_e {
     YY_TOKEN_NULL,                  //!< Unassigned token.

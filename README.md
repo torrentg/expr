@@ -59,6 +59,17 @@ Compile previous code using:
 gcc -o example example.c expr.c -lm
 ```
 
+## Build
+
+Follow these steps to compile and run the tests and examples.
+
+```bash
+make
+cd build
+tests
+calc
+```
+
 ## Contributors
 
 | Name | Contribution |
